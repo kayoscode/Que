@@ -1,0 +1,12 @@
+const SWI_EXIT 0x00
+const SWI_PRINTF 0x01
+const SWI_PRINT_INT 0x02 
+const SWI_PRINT_CHAR 0x03
+const SWI_PRINT_FLOAT 0x04
+const SWI_PRINT_STRING 0x05
+
+segment text
+	; Entrypoint main - executes main program.
+	entrypt label main:
+		swi SWI_EXIT
+end

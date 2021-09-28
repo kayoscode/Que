@@ -1,0 +1,72 @@
+const SWI_EXIT 0x00
+const SWI_PRINTF 0x01
+const SWI_PRINT_INT 0x02 
+const SWI_PRINT_CHAR 0x03
+const SWI_PRINT_FLOAT 0x04
+const SWI_PRINT_STRING 0x05
+
+const VAR1 100
+const VAR2 200
+
+label reverseString
+label max
+label min
+
+segment data
+	label printMsg1:
+		asciiz "MAX("
+	label printMsg2:
+		asciiz ", "
+	label printMsg3:
+		asciiz ") = "
+	label printNewLine:
+		byte 10, 0
+		
+	label stringToReverse:
+		asciiz "Is this string reversed??"
+end
+
+segment text
+	entrypt label main:
+		push ra
+		
+		la r0, printMsg1
+		swi SWI_PRINT_STRING
+		
+		mov r8, VAR1
+		mov r0, r8
+		swi SWI_PRINT_INT
+		
+		la r0, printMsg2
+		swi SWI_PRINT_STRING
+		
+		mov r9, VAR2
+		mov r0, r9
+		swi SWI_PRINT_INT
+		call max
+		
+		push r0
+		la r0, printMsg3
+		swi SWI_PRINT_STRING
+		pop r0
+		
+		swi SWI_PRINT_INT
+	
+		la r0, printNewLine
+		swi SWI_PRINT_STRING
+		
+		la r0, stringToReverse
+		swi SWI_PRINT_STRING
+		
+		la r0, printNewLine
+		swi SWI_PRINT_STRING
+		
+		la r8, stringToReverse
+		mov r0, r8
+		call reverseString
+		la r0, stringToReverse
+		swi SWI_PRINT_STRING
+		
+		pop ra
+		swi SWI_EXIT
+end

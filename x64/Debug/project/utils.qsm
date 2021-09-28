@@ -1,0 +1,181 @@
+const RANDA 214013
+const RANDC 2531011
+const RAND_DIV 0x10000
+const RAND_MOD 0x80000000
+const NULL 0
+
+; Maintains the current random-seed.
+; Updated after each call to rand
+segment data
+	label randomState:
+		word 0x0
+end
+
+; Math utilies
+segment text
+	; factorial(int value) returns value!
+	export factorial:
+		push ra
+		push r8
+		
+		; If the value is less than or equal to 1, we just need to set the return to 1.
+		cmp r8, 1
+		jle factorialRet1
+		
+		; Otherwise, compute the new value with a recursive call, multiply, then return.
+		push r8
+		dec r8
+		call factorial
+		pop r8
+		mul r0, r0, r8
+		jmp factorialRet
+		
+		label factorialRet1:
+		mov r0, 1
+		
+		label factorialRet:
+		pop r8
+		pop ra
+		ret
+	
+	; factorialItterative(int value)
+	export factorialItterative:
+		push ra
+		push r8
+		
+		; Loop from 1 to r8 multiplying each value together.
+		mov r0, 1
+		mov r1, 0
+		
+		label factorialItterativeLoop:
+		inc r1
+		mul r0, r1, r0
+		cmp r1, r8
+		jl factorialItterativeLoop
+		
+		pop r8
+		pop ra
+		ret
+	
+	; srand(int seed)
+	export srand:
+		push r0
+		la r0, randomState
+		sw r8, r0
+		pop r0
+		ret
+	
+	; computes a random number between 0 and INT16_MAX/2
+	export rand:
+		push r1
+		
+		; Get the current random state into r0.
+		la r1, randomState
+		lw r0, r1
+		
+		; Compute new state.
+		mul r0, r0, RANDA
+		add r0, r0, RANDC
+		mod r0, r0, RAND_MOD
+		sw r0, r1
+		
+		div r0, r0, RAND_DIV
+		
+		pop r1
+		ret
+	
+	; returns the min between two values
+	; min(int (r8)a, int (r9)b)
+	export min:
+		cmp r8, r9
+		movge r0, r9
+		movl r0, r8
+		ret
+	
+	; returns the max between two values
+	; max(int (r8)a, int (r9)b)
+	export max:
+		push ra
+		cmp r8, r9
+		movge r0, r8
+		movl r0, r9
+		pop ra
+		ret
+end
+
+; Strings
+segment text
+	; strlen(char* str) -> first param in r8
+	export strlen:
+		push ra
+		mov r0, 0
+		push r8
+		push r7
+		
+		; Load each character from the top of the string.
+		label strlenloop:
+		lb r7, r8
+		inc r8
+		inc r0
+		cmp r7, NULL
+		jne strlenloop
+		
+		dec r0
+		
+		; Return stack frame.
+		pop r7
+		pop r8
+		pop ra
+		ret
+		
+	; strcmp(char* arg1, char* arg2) returns zero if they are equal, any other number if not.
+	export strcmp:
+		push ra
+		push r8
+		pop r8
+		pop ra
+		ret
+
+	export reverseString:
+		push ra
+		push r8
+		push bp
+		
+		; Store local variable for head of string ptr.
+		sub sp, sp, 4
+		mov bp, sp
+		sw r8, bp
+		
+		; Add a zero to the top of the stack to indicate where the string started.
+		mov r1, 0
+		pushb r1
+
+		; Push each byte onto the stack until the string hits a zero.
+		label reverseStringPushLoop:
+		lb r1, r8
+		cmp r1, 0
+		je reverseStringEndPush
+		pushb r1
+		inc r8
+		jmp reverseStringPushLoop
+
+		label reverseStringEndPush:
+		; Reset R0 to point to the top of the destination string.
+		lw r8, bp
+		
+		; Pop elements off the stack and into the new space for the string.
+		label reverseStringPopLoop:
+		popb r1
+		cmp r1, 0
+		je reverseStringEndPop
+		sb r1, r8
+		inc r8
+		jmp reverseStringPopLoop
+		label reverseStringEndPop:
+		add sp, sp, 4
+		
+		pop bp
+		pop r8
+		pop ra
+		ret
+end

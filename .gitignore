@@ -1,0 +1,8 @@
+*.user
+*.exe
+*.obj
+*.o
+*.qo
+*.out
+*.pbd
+.vs/

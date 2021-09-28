@@ -1,0 +1,8 @@
+﻿C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Microsoft\VC\v160\Microsoft.CppBuild.targets(513,5): warning MSB8028: The intermediate directory (x64\Debug\) contains files shared from another project (ProgrammingLanguage.vcxproj).  This can lead to incorrect clean and rebuild behavior.
+  SoftwareInterrupt.cpp
+  Source.cpp
+C:\Users\Bryce\source\repos\ProgrammingLanguage\ProgrammingLanguage\Source.cpp(26,57): warning C4267: 'argument': conversion from 'size_t' to 'int', possible loss of data
+  VirtualMachine.cpp
+C:\Users\Bryce\source\repos\ProgrammingLanguage\ProgrammingLanguage\VirtualMachine.cpp(1484,2): warning C4244: '=': conversion from 'float' to 'uint32_t', possible loss of data
+  Generating Code...
+  ProgrammingLanguage.vcxproj -> C:\Users\Bryce\source\repos\ProgrammingLanguage\x64\Debug\QueVM.exe

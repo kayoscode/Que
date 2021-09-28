@@ -1,0 +1,9 @@
+﻿  Assembler.cpp
+C:\Users\Bryce\source\repos\ProgrammingLanguage\Assembler\Assembler.cpp(306,42): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\Assembler\Assembler.cpp(644,53): warning C4267: '+=': conversion from 'size_t' to 'int', possible loss of data
+  Source.cpp
+  Generating code
+  Previous IPDB not found, fall back to full compilation.
+  All 902 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
+  Finished generating code
+  Assembler.vcxproj -> C:\Users\Bryce\source\repos\ProgrammingLanguage\x64\Release\Assembler.exe

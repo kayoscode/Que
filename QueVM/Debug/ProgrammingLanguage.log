@@ -1,0 +1,5 @@
+﻿  Source.cpp
+  VirtualMachine.cpp
+C:\Users\Bryce\source\repos\ProgrammingLanguage\ProgrammingLanguage\VirtualMachine.cpp(1489,2): warning C4244: '=': conversion from 'float' to 'uint32_t', possible loss of data
+  Generating Code...
+  ProgrammingLanguage.vcxproj -> C:\Users\Bryce\source\repos\ProgrammingLanguage\Debug\ProgrammingLanguage.exe
