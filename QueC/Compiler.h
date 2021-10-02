@@ -233,7 +233,6 @@ public:
 		symbolInfo.clear();
 		symbolCodes.clear();
 		currentOffsetFromBP = INITIAL_OFFSET_FROM_BP;
-		symbolCodeIndex = 1;
 	}
 
 	int addSymbol(const std::string& symbol, const SymbolInfo& info) {
@@ -285,7 +284,15 @@ public:
 	std::map<std::string, int> symbolCodes;
 	int currentOffsetFromBP = 0;
 
-private:
+	// Register management
+	bool registerInUse[INT_REGISTER_COUNT] = { false };
+	std::map<std::string, Register> variableRegisterAllocation;
+
+	// Should be called right before a register is used.
+	void allocateRegister(int variable);
+	void freeRegister(int variable);
+
+	// same for floats
 	int symbolCodeIndex = 1;
 };
 
@@ -301,6 +308,7 @@ public:
 		symbolInfo.clear();
 		symbolImportReferencesDataSeg.clear();
 		symbolImportReferencesTextSeg.clear();
+		symbolCodeIndex = 0;
 	}
 
 	bool addSymbol(const std::string& name, const SymbolInfo& info) {
@@ -364,7 +372,10 @@ public:
 	std::map<std::string, std::vector<int>> symbolImportReferencesDataSeg;
 	int exportedSymbolCount;
 	std::vector<int> globalOffsetTable;
+	int symbolCodeIndex = 0;
 };
+
+class RegisterManager;
 
 /// <summary>
 /// Holds information about a symbol scope.
@@ -427,6 +438,7 @@ public:
 		if (scopeIndex >= localScope.size()) {
 			localScope.push_back(new LocalSymbolTable());
 		}
+		//localScope[localScope.size() - 1]->symbolCodeIndex = 
 	}
 
 	/// <summary>
@@ -480,6 +492,7 @@ public:
 	GlobalSymbolTable globalSymbols;
 	Compiler* compiler;
 };
+
 
 /// <summary>
 /// Class responsible for producing an object file from source code.

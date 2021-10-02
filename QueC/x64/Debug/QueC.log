@@ -1,4 +1,6 @@
-﻿  Compiler.cpp
+﻿  CodeOps.cpp
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.h(205,1): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+  Compiler.cpp
 C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.h(205,1): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
 C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(159,98): warning C4267: 'initializing': conversion from 'size_t' to 'uint32_t', possible loss of data
 C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(166,41): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
