@@ -1,7 +1,12 @@
 ﻿C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Microsoft\VC\v160\Microsoft.CppBuild.targets(513,5): warning MSB8028: The intermediate directory (x64\Debug\) contains files shared from another project (Assembler.vcxproj).  This can lead to incorrect clean and rebuild behavior.
   Assembler.cpp
-C:\Users\Bryce\source\repos\ProgrammingLanguage\QueASM\Assembler.cpp(308,42): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
-C:\Users\Bryce\source\repos\ProgrammingLanguage\QueASM\Assembler.cpp(646,53): warning C4267: '+=': conversion from 'size_t' to 'int', possible loss of data
-  Source.cpp
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueASM\Assembler.cpp(291,84): warning C4267: 'initializing': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueASM\Assembler.cpp(295,41): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueASM\Assembler.cpp(308,84): warning C4267: 'initializing': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueASM\Assembler.cpp(313,41): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueASM\Assembler.cpp(327,57): warning C4267: 'initializing': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueASM\Assembler.cpp(330,20): warning C4018: '<': signed/unsigned mismatch
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueASM\Assembler.cpp(444,53): warning C4267: '+=': conversion from 'size_t' to 'int', possible loss of data
+  qasm.cpp
   Generating Code...
   QueASM.vcxproj -> C:\Users\Bryce\source\repos\ProgrammingLanguage\x64\Debug\QueASM.exe

@@ -9,6 +9,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "QueASM", "QueASM\QueASM.vcx
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "QueLinker", "QueLinker\QueLinker.vcxproj", "{78440D41-A71D-4384-9B58-425868639499}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "QueC", "QueC\QueC.vcxproj", "{89735748-A7F9-4653-82C5-F652FC416840}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -41,6 +43,14 @@ Global
 		{78440D41-A71D-4384-9B58-425868639499}.Release|x64.Build.0 = Release|x64
 		{78440D41-A71D-4384-9B58-425868639499}.Release|x86.ActiveCfg = Release|Win32
 		{78440D41-A71D-4384-9B58-425868639499}.Release|x86.Build.0 = Release|Win32
+		{89735748-A7F9-4653-82C5-F652FC416840}.Debug|x64.ActiveCfg = Debug|x64
+		{89735748-A7F9-4653-82C5-F652FC416840}.Debug|x64.Build.0 = Debug|x64
+		{89735748-A7F9-4653-82C5-F652FC416840}.Debug|x86.ActiveCfg = Debug|Win32
+		{89735748-A7F9-4653-82C5-F652FC416840}.Debug|x86.Build.0 = Debug|Win32
+		{89735748-A7F9-4653-82C5-F652FC416840}.Release|x64.ActiveCfg = Release|x64
+		{89735748-A7F9-4653-82C5-F652FC416840}.Release|x64.Build.0 = Release|x64
+		{89735748-A7F9-4653-82C5-F652FC416840}.Release|x86.ActiveCfg = Release|Win32
+		{89735748-A7F9-4653-82C5-F652FC416840}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

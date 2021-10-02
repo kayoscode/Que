@@ -141,7 +141,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Linker.cpp" />
-    <ClCompile Include="Source.cpp" />
+    <ClCompile Include="quel.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Linker.h" />

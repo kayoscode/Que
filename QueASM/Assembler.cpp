@@ -5,16 +5,12 @@
 #include <stdio.h>
 #include <vector>
 
-constexpr int UNDEFINED_CODE = 0x7FFFFFFF;
-constexpr int COMMA_CODE = 100;
-constexpr int IDENTIFIER_CODE = 101;
-constexpr int STRING_CODE = 101;
-constexpr int BINARY_INTEGER_CODE = 103;
-constexpr int OCTAL_INTER_CODE = 104;
-constexpr int HEX_INTEGER_CODE = 105;
-constexpr int INTEGER_CODE = 106;
-constexpr int FLOAT_CODE = 107;
-constexpr int COLON_CODE = 108;
+/// <summary>
+/// Just a few code definitions
+/// </summary>
+constexpr int COMMA_CODE = 108;
+constexpr int COLON_CODE = 109;
+
 int INT_REGISTER_SERIES_LOW_CODE = 300;
 int INT_REGISTER_SERIES_HIGH_CODE = 319;
 int FLOAT_REGISTER_SERIES_LOW_CODE = 325;
@@ -29,7 +25,7 @@ int strcicmp(char const *a, char const *b)
 	}
 }
 
-bool Assembler::ReserveTableCompare::operator()(const std::string& a, const std::string& b) const {
+bool ReserveTableCompare::operator()(const std::string& a, const std::string& b) const {
 	return strcicmp(a.c_str(), b.c_str()) < 0;
 }
 
@@ -54,18 +50,8 @@ uint32_t encodeInstruction(uint8_t opcode, bool immediateFlag, uint8_t op1, uint
 }
 
 Assembler::Assembler() :
-	output(nullptr),
-	buffer(nullptr),
-	bufferIndex(0),
-	bufferSize(0),
-	currentLineNumber(0),
-    reserveTable(),
-	symbolTable(),
-	logger("", Level::LEVEL_TRACE),
-	endOfParse(false),
-	pass(0),
-	errorsFound(false),
-	currentBinaryOffset(0)
+	ParserBase(),
+	symbolTable()
 {
 	logger.setPrefix("");
 	logger.setColorDisabled();
@@ -262,6 +248,7 @@ bool Assembler::assembleFile(const std::string& fileName, std::ostream& outputFi
 	}
 	else {
 		logger.error("File could not be loaded from disk.");
+		errorsFound = true;
 	}
 
 	return !errorsFound;
@@ -300,188 +287,53 @@ void Assembler::writeOBJHeader(std::ostream& output) {
 		}
 	}
 
-	// Write imported symbols to file.
-	output.write((char*)&symbolTable.importedSymbolCount, sizeof(uint32_t));
-	for (std::map<std::string, SymbolType>::iterator i = symbolTable.symbolTypes.begin(); i != symbolTable.symbolTypes.end(); ++i) {
-		if (i->second == SymbolType::IMPORTED) {
-			std::vector<int>& references = symbolTable.symbolImportReferences[i->first];
-			int referenceCount = references.size();
+	// Write imported symbols to file for the text segment.
+	uint32_t textSegmentSymbolCount = symbolTable.symbolImportReferencesTextSeg.size();
+	output.write((char*)&textSegmentSymbolCount, sizeof(uint32_t));
+	for (std::map<std::string, std::vector<int>>::iterator i = symbolTable.symbolImportReferencesTextSeg.begin(); i != symbolTable.symbolImportReferencesTextSeg.end(); ++i) {
+		std::vector<int>& references = i->second;
+		int referenceCount = references.size();
 
-			if (referenceCount <= 0) {
-				// logger.warning("Unused imported symbol: {s}", i->first.c_str());
-			}
+		output.write(i->first.c_str(), i->first.size() + 1);
 
-			output.write(i->first.c_str(), i->first.size() + 1);
+		// Write N occurrences
+		output.write((char*)&referenceCount, sizeof(uint32_t));
 
-			// Write N occurrences
-			output.write((char*)&referenceCount, sizeof(uint32_t));
-
-			// Write offset to each occurence
-			for (int i = 0; i < references.size(); i++) {
-				output.write((char*)&references[i], sizeof(uint32_t));
-			}
+		// Write offset to each occurence
+		for (int i = 0; i < references.size(); i++) {
+			output.write((char*)&references[i], sizeof(uint32_t));
 		}
+	}
+
+	uint32_t dataSegmentSymbolCount = symbolTable.symbolImportReferencesDataSeg.size();
+	output.write((char*)&dataSegmentSymbolCount, sizeof(uint32_t));
+	// Write the imported symbols for the data segment. (zeros will be fine because the correct value will be a direct substituation)
+	for (std::map<std::string, std::vector<int>>::iterator i = symbolTable.symbolImportReferencesDataSeg.begin(); i != symbolTable.symbolImportReferencesDataSeg.end(); ++i) {
+		std::vector<int>& references = i->second;
+		int referenceCount = references.size();
+
+		output.write(i->first.c_str(), i->first.size() + 1);
+
+		// Write N occurrences
+		output.write((char*)&referenceCount, sizeof(uint32_t));
+
+		// Write offset to each occurence
+		for (int i = 0; i < references.size(); i++) {
+			output.write((char*)&references[i], sizeof(uint32_t));
+		}
+	}
+
+	// Write global offset table.
+	uint32_t gotSize = symbolTable.globalOffsetTable.size();
+	output.write((char*)&gotSize, sizeof(uint32_t));
+	// Write each occurrence to the file.
+	for (int i = 0; i < gotSize; i++) {
+		int location = symbolTable.globalOffsetTable[i];
+		output.write((char*)&location, sizeof(uint32_t));
 	}
 }
 
-/// <summary>
-/// Returns whether a character counts as white space for this parser
-/// </summary>
-/// <param name="character"></param>
-/// <returns></returns>
-static bool isWhiteSpace(char character) {
-	return character == ' ' || character == '\n' || character == '\r' || character == '\t';
-}
-
-static bool isAlpha(char character) {
-	return (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z');
-}
-
-static bool isNum(char character) {
-	return character >= '0' && character <= '9';
-}
-
-void Assembler::trimWhiteSpace() {
-	// Enter into a comment till the end of the line
-	if (buffer[bufferIndex] == ';') {
-		while (!isEndOfStream() && buffer[bufferIndex] != '\n') {
-			bufferIndex++;
-		}
-	}
-
-	while (!isEndOfStream() && isWhiteSpace(buffer[bufferIndex])) {
-		if (buffer[bufferIndex] == '\n') {
-			currentLineNumber++;
-		}
-
-		bufferIndex++;
-	}
-
-	if (buffer[bufferIndex] == ';') {
-		trimWhiteSpace();
-	}
-}
-
-void Assembler::readIdentifierOrKeyword() {
-	char* lexemeStart = buffer + bufferIndex;
-
-	// If the first character is alpha, we can move onto the next
-	while (!isEndOfStream() &&
-		(isAlpha(buffer[bufferIndex]) || 
-		isNum(buffer[bufferIndex]) ||
-		buffer[bufferIndex] == '_')) 
-	{
-		bufferIndex++;
-	}
-
-	// Check if its in the reserve table
-	currentToken.lexeme = std::string(lexemeStart, buffer + bufferIndex);
-
-	int reserveTableCode = reserveTable.getReserveCode(currentToken.lexeme);
-
-	if (reserveTableCode != -1) {
-		currentToken.code = reserveTableCode;
-	}
-	else {
-		currentToken.code = IDENTIFIER_CODE;
-	}
-}
-
-void Assembler::readNumber() {
-	char* lexemeStart = buffer + bufferIndex;
-
-	if (buffer[bufferIndex] == '-') {
-		bufferIndex++;
-	}
-
-	bool floatingPoint = false;
-
-	// Load a hex number if that's what this is
-	if (!isEndOfStream() && buffer[bufferIndex] == '0') {
-		if (buffer[bufferIndex + 1] == 'b') {
-			// Load binary.
-			bufferIndex += 2;
-			while (!isEndOfStream() && buffer[bufferIndex] == '0' || buffer[bufferIndex] == '1') {
-				bufferIndex++;
-			}
-			currentToken.lexeme = std::string(lexemeStart, buffer + bufferIndex);
-			currentToken.code = BINARY_INTEGER_CODE;
-			return;
-		}
-		else if (buffer[bufferIndex + 1] == 'x') {
-			// Load hex.
-			bufferIndex += 2;
-			while (!isEndOfStream() && (buffer[bufferIndex] >= '0' && buffer[bufferIndex] <= '9') || 
-				(buffer[bufferIndex] >= 'A' && buffer[bufferIndex] <= 'F') ||
-				buffer[bufferIndex] >= 'a' && buffer[bufferIndex] <= 'f') {
-				bufferIndex++;
-			}
-
-			currentToken.lexeme = std::string(lexemeStart, buffer + bufferIndex);
-			currentToken.code = HEX_INTEGER_CODE;
-			return;
-		}
-		else if (buffer[bufferIndex + 1] == 'o') {
-			// Load octal.
-			bufferIndex += 2;
-			while (!isEndOfStream() && buffer[bufferIndex] >= '0' && buffer[bufferIndex] <= '7') {
-				bufferIndex++;
-			}
-			currentToken.lexeme = std::string(lexemeStart, buffer + bufferIndex);
-			currentToken.code = OCTAL_INTER_CODE;
-			return;
-		}
-	}
-
-	// Assume it's an integer until we see one of a few things:
-	// A decimal point turns it into a float
-	// e/E for expoential notation turns it into a float
-	while (!isEndOfStream() && isNum(buffer[bufferIndex])) {
-		bufferIndex++;
-	}
-
-	// When its not a number anymore, we must see what it is!
-	if (!isEndOfStream()) {
-		if (buffer[bufferIndex] == 'e' || buffer[bufferIndex] == 'E') {
-			bufferIndex++;
-
-			// Optional negative on exponent
-			if (!isEndOfStream() && buffer[bufferIndex] == '-') {
-				bufferIndex++;
-			}
-
-			// Load the rest of the number.
-			if (!isEndOfStream() && isNum(buffer[bufferIndex])) {
-				while (!isEndOfStream() && isNum(buffer[bufferIndex])) {
-					bufferIndex++;
-				}
-			}
-
-			floatingPoint = true;
-		}
-		else if (buffer[bufferIndex] == '.') {
-			bufferIndex++;
-			if (!isEndOfStream()) {
-				// Load the rest of the number.
-				while (!isEndOfStream() && isNum(buffer[bufferIndex])) {
-					bufferIndex++;
-				}
-			}
-
-			floatingPoint = true;
-		}
-	}
-
-	currentToken.lexeme = std::string(lexemeStart, buffer + bufferIndex);
-	if (floatingPoint) {
-		currentToken.code = FLOAT_CODE;
-	}
-	else {
-		currentToken.code = INTEGER_CODE;
-	}
-}
-
-bool Assembler::readOneChar() {
+bool Assembler::readOneTwoChar() {
 	if (buffer[bufferIndex] == ',') {
 		currentToken.lexeme = ",";
 		currentToken.code = COMMA_CODE;
@@ -494,60 +346,6 @@ bool Assembler::readOneChar() {
 	}
 
 	return false;
-}
-
-void Assembler::readString() {
-	bufferIndex++;
-	char* lexemeStart = buffer + bufferIndex;
-
-	while (!isEndOfStream() && buffer[bufferIndex] != '"' && buffer[bufferIndex] != '\r' && buffer[bufferIndex] != '\n') {
-		bufferIndex++;
-	}
-
-	currentToken.lexeme = std::string(lexemeStart, buffer + bufferIndex);
-	currentToken.code = STRING_CODE;
-
-	if (buffer[bufferIndex] != '"') {
-		addWarning("String ran off the end of the line without closing quote, may cause unexpected behavior");
-	}
-
-	bufferIndex++;
-}
-
-bool Assembler::collectNextToken() {
-	trimWhiteSpace();
-
-	if (!isEndOfStream()) {
-		// Read the keyword, identifier, constant, or valid symbol
-		if (isAlpha(buffer[bufferIndex])) {
-			readIdentifierOrKeyword();
-		}
-		else if (isNum(buffer[bufferIndex]) || buffer[bufferIndex] == '-') {
-			readNumber();
-		}
-		else if (buffer[bufferIndex] == '"') {
-			readString();
-		}
-		else if (readOneChar()) {
-			bufferIndex++;
-		}
-		else {
-			// An error occurs in this case
-			endOfParse = true;
-			currentToken.lexeme = buffer[bufferIndex];
-			currentToken.code = UNDEFINED_CODE;
-			return false;
-		}
-	}
-	else {
-		// Terminate the program
-		endOfParse = true;
-		currentToken.lexeme = buffer[bufferIndex];
-		currentToken.code = UNDEFINED_CODE;
-		return false;
-	}
-
-	return true;
 }
 
 /// <summary>
@@ -722,7 +520,7 @@ void Assembler::parseDataSegment() {
 void Assembler::parseSpace() {
 	int value = 0;
 
-	if (getIntegerFromToken(value, false)) {
+	if (getIntegerFromToken(value, false, true)) {
 	}
 	else {
 		addError("Expected positive numeric value or identifier");
@@ -741,7 +539,7 @@ void Assembler::parseSpace() {
 	collectNextToken();
 }
 
-bool Assembler::getIntegerFromToken(int& value, bool acceptLabels) {
+bool Assembler::getIntegerFromToken(int& value, bool allowLabels, bool dataSegment) {
 	int64_t parseValue = 0;
 	value = 0;
 
@@ -767,41 +565,46 @@ bool Assembler::getIntegerFromToken(int& value, bool acceptLabels) {
 			parseValue = std::stoll(symbol, 0, 2) * (negativeFlag? -1 : 1);
 		}
 		else if (currentToken.code == IDENTIFIER_CODE) {
+			// If its the zeroth pass, we don't know what symbols exist in the program.
+			if (pass == 0) return true;
+
 			SymbolType type = symbolTable.getSymbolType(currentToken.lexeme);
 			if (type == SymbolType::CONSTANT) {
 				parseValue = symbolTable.getSymbolValue(currentToken.lexeme);
 			}
 			else if (type == LOCAL || type == EXPORTED) {
-				if (acceptLabels) {
-					parseValue = (int64_t)(symbolTable.getSymbolValue(currentToken.lexeme) - (currentBinaryOffset + 4ULL));
+				if (allowLabels) {
+					if (dataSegment) {
+						parseValue = (int64_t)(symbolTable.getSymbolValue(currentToken.lexeme));
+						symbolTable.addLocalDataSegmentReference(currentToken.lexeme, currentBinaryOffset);
+					}
+					else {
+						parseValue = (int64_t)(symbolTable.getSymbolValue(currentToken.lexeme) - (currentBinaryOffset + 4ULL));
+					}
 				}
 				else {
-					addError("Labels not accepted");
+					parseValue = 0;
 					return false;
 				}
 			}
 			else if (type == IMPORTED) {
-				if (acceptLabels) {
-					// These are external addresses and should be resolved by the linker.
-					parseValue = 0;
-
-					if (pass == 0) {
-						symbolTable.addImportReference(currentToken.lexeme, currentBinaryOffset + 4);
+				parseValue = 0;
+				if (allowLabels) {
+					if (dataSegment) {
+						// These are external addresses and should be resolved by the linker.
+						symbolTable.addImportReferenceDataSeg(currentToken.lexeme, currentBinaryOffset);
+					}
+					else {
+						symbolTable.addImportReferenceTextSeg(currentToken.lexeme, currentBinaryOffset + 4);
 					}
 				}
 				else {
-					addError("Labels not accepted");
+					addError("Labels not allowed in this context.");
 					return false;
 				}
 			}
 			else {
-				// If it's the first pass, we don't yet know if the identifier will be declared later.
-				if (pass == 0) {
-					return true;
-				}
-				else {
-					return false;
-				}
+				return false;
 			}
 		}
 		else {
@@ -854,7 +657,7 @@ void Assembler::parseConst() {
 		int intValue = 0;
 		float floatValue = 0;
 
-		if (getIntegerFromToken(intValue, false)) {
+		if (getIntegerFromToken(intValue, false, false)) {
 			if(pass == 0)
 			if (!symbolTable.addSymbol(idt, SymbolType::CONSTANT, intValue)) {
 				addError("Previously declared symbol");
@@ -884,7 +687,7 @@ void Assembler::parseByte() {
 	int value = 0;
 	uint8_t v = 0;
 
-	if (getIntegerFromToken(value, false)) {
+	if (getIntegerFromToken(value, false, true)) {
 	}
 	else {
 		addError("Expected numeric value or valid identifier");
@@ -915,7 +718,7 @@ void Assembler::parseHalf() {
 	int value = 0;
 	uint16_t v = 0;
 
-	if (getIntegerFromToken(value, false)) {
+	if (getIntegerFromToken(value, false, true)) {
 	}
 	else {
 		addError("Expected numeric value or valid identifier");
@@ -945,7 +748,7 @@ void Assembler::parseHalf() {
 
 void Assembler::parseWord() {
 	int value = 0;
-	if (getIntegerFromToken(value, false)) {
+	if (getIntegerFromToken(value, true, true)) {
 	}
 	else {
 		addError("Expected numeric value or valid identifier");
@@ -1106,7 +909,7 @@ void Assembler::parseThreeArgsInt(int opcode) {
 
 			if (!readIntRegister(arg3)) {
 				// It can also be an idt/imm
-				if (getIntegerFromToken(arg3, false)) {
+				if (getIntegerFromToken(arg3, false, false)) {
 					immediateFlag = true;
 				}
 				else {
@@ -1198,7 +1001,7 @@ void Assembler::parseTwoArgsInt(int opcode) {
 		}
 
 		if (!readIntRegister(arg2)) {
-			if (getIntegerFromToken(arg2, (opcode == LA))) {
+			if (getIntegerFromToken(arg2, (opcode == LA), false)) {
 				immediateFlag = true;
 			}
 			else {
@@ -1327,7 +1130,7 @@ void Assembler::parseStoreLoad(int opcode) {
 			collectNextToken();
 		}
 
-		if (getIntegerFromToken(offset, false)) {
+		if (getIntegerFromToken(offset, false, false)) {
 			collectNextToken();
 			immediateFlag = true;
 		}
@@ -1362,7 +1165,7 @@ void Assembler::parseJump(int opcode) {
 		instruction = encodeInstruction(opcode, false, addr, 0, 0);
 		writeInstruction(instruction, false, 0);
 	}
-	else if (getIntegerFromToken(addr, true)) {
+	else if (getIntegerFromToken(addr, true, false)) {
 		// Register jump.
 		collectNextToken();
 		instruction = encodeInstruction(opcode, true, 0, 0, 0);
@@ -1384,7 +1187,67 @@ void Assembler::parsePushPop(int opcode) {
 	}
 	else {
 		if (!readIntRegister(reg)) {
-			addError("Expected reg32");
+			if (opcode == PUSHB) {
+				uint8_t v = 0;
+				int value = 0;
+
+				if (getIntegerFromToken(value, false, false)) {
+				}
+				else {
+					addError("Expected numeric value or valid identifier");
+				}
+
+				if (value <= UCHAR_MAX && value >= CHAR_MIN) {
+					v = value & 0xFF;
+				}
+				else {
+					addWarning("Value overflows 1 byte range, may cause unexpected results");
+				}
+
+				collectNextToken();
+				uint32_t instruction = encodeInstruction(opcode, true, 0, 0, 0);
+				writeInstruction(instruction, true, v);
+				return;
+			}
+			else if (opcode == PUSHH) {
+				uint16_t v = 0;
+				int value = 0;
+
+				if (getIntegerFromToken(value, false, false)) {
+				}
+				else {
+					addError("Expected numeric value or valid identifier");
+				}
+
+				if (value <= UINT16_MAX && value >= INT16_MIN) {
+					v = value & 0xFFFF;
+				}
+				else {
+					addWarning("Value overflows 2 byte range, may cause unexpected results");
+				}
+
+				collectNextToken();
+				uint32_t instruction = encodeInstruction(opcode, true, 0, 0, 0);
+				writeInstruction(instruction, true, v);
+				return;
+			}
+			else if (opcode == PUSHW) {
+				int value = 0;
+
+				if (getIntegerFromToken(value, false, false)) {
+				}
+				else {
+					addError("Expected numeric value or valid identifier");
+				}
+
+				collectNextToken();
+				uint32_t instruction = encodeInstruction(opcode, true, 0, 0, 0);
+				writeInstruction(instruction, true, value);
+				return;
+			}
+			else {
+				addError("Expected reg32");
+			}
 		}
 	}
 
@@ -1412,7 +1275,7 @@ void Assembler::parseSwi(int opcode) {
 	int immediate = 0;
 
 	uint32_t instruction = 0;
-	if (getIntegerFromToken(immediate, false)) {
+	if (getIntegerFromToken(immediate, false, false)) {
 		// All of these instructions are guaranteed to have an immediate, no need to encode it.
 		instruction = encodeInstruction(opcode, false, 0, 0, 0);
 		writeInstruction(instruction, true, immediate);

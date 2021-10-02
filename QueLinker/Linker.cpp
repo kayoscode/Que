@@ -17,6 +17,7 @@ bool Linker::linkFiles(const std::string& outputFileName, const std::vector<std:
 	std::vector<OBJInfo*> objFileInfo;
 	offsets.clear();
 	globalSymbols.clear();
+	exeGlobalOffsetTable.clear();
 	int previousOffset = 0;
 	hasErrors = false;
 	entryPoint = -1;
@@ -29,7 +30,7 @@ bool Linker::linkFiles(const std::string& outputFileName, const std::vector<std:
 		previousOffset += objFileInfo[i]->binarySize;
 	}
 
-	// Make sure we have an entrypoint
+	// Make sure we have an entrypoint.
 	if (entryPoint == -1) {
 		addError();
 		logger.error("No entrypoint defined");
@@ -43,14 +44,28 @@ bool Linker::linkFiles(const std::string& outputFileName, const std::vector<std:
 		}
 	}
 
+	// Write data to executable file.
+	// Write a jump into the entrypoint (for now). -> later the VM will take care of this.
 	if (!hasErrors) {
 		std::ofstream outputFile(outputFileName, std::ios::binary | std::ios::out);
-		// Write jump into entrypoint.
-		int instruction = 0b10101000;
-		outputFile.write((char*)&instruction, sizeof(uint32_t));
-		entryPoint += 4;
+
+		// Entrypoint should be specified as the first byte in the file.
 		outputFile.write((char*)&entryPoint, sizeof(uint32_t));
 
+		// Write global offset table for the VM to parse and offset.
+		// Start with the size of the GOT.
+		int gotSize = exeGlobalOffsetTable.size();
+		outputFile.write((char*)&gotSize, sizeof(uint32_t));
+		for (int i = 0; i < exeGlobalOffsetTable.size(); i++) {
+			int offset = exeGlobalOffsetTable[i];
+			outputFile.write((char*)&offset, sizeof(uint32_t));
+		}
+
+		// Write the total size of the binary.
+		int binarySize = offsets[offsets.size() - 1] + objFileInfo[objFileInfo.size() - 1]->binarySize;
+		outputFile.write((char*)&binarySize, sizeof(uint32_t));
+
+		// Write each binary in order.
 		for (int i = 0; i < objFileInfo.size(); i++) {
 			outputFile.write(objFileInfo[i]->binary, objFileInfo[i]->binarySize);
 		}
@@ -66,27 +81,44 @@ bool Linker::linkFiles(const std::string& outputFileName, const std::vector<std:
 }
 
 void Linker::resolveSymbols(OBJInfo& objectInfo, int fileOffset) {
+	uint32_t* binAsIntPtr = (uint32_t*)objectInfo.binary;
+
+	// Resolve extern text segment symbols by finding their global offsets.
 	for (std::map<std::string, std::vector<int>>::iterator i = 
-		objectInfo.importedSymbolOffsets.begin(); 
-		i != objectInfo.importedSymbolOffsets.end(); ++i) 
+		objectInfo.importedSymbolOffsetsTextSeg.begin(); 
+		i != objectInfo.importedSymbolOffsetsTextSeg.end(); ++i) 
 	{
 		std::vector<int>& importOffsets = i->second;
+		int globalOffset = getGlobalSymbol(objectInfo.fileName, i->first);
 
-		if (importOffsets.size() > 0) {
-			int globalOffset = getGlobalSymbol(objectInfo.fileName, i->first);
+		for (int j = 0; j < importOffsets.size(); j++) {
+			// Subtract off four because these labels will be used in instructions which are immediates.
+			// Shifting back by 4 moves it to target the offset from the instruction as intended.
+			int newOffset = globalOffset - (fileOffset + importOffsets[j]);
+			binAsIntPtr[importOffsets[j] / sizeof(uint32_t)] = newOffset;
+		}
+	}
 
-			for (int j = 0; j < importOffsets.size(); j++) {
-				// Subtract off four because these labels will be used in instructions which are immediates.
-				// Shifting back by 4 moves it to target the offset from the instruction as intended.
-				int newOffset = globalOffset - (fileOffset + importOffsets[j]);
-				uint32_t* binAsIntPtr = (uint32_t*)objectInfo.binary;
-				binAsIntPtr[importOffsets[j] / 4] = newOffset;
-			}
+	// Resolve extern data segment symbols by assigning them their global offset.
+	for (std::map<std::string, std::vector<int>>::iterator i =
+		objectInfo.importedSymbolOffsetsDataSeg.begin();
+		i != objectInfo.importedSymbolOffsetsDataSeg.end(); ++i) 
+	{
+		std::vector<int>& importOffsetsData = i->second;
+		int globalOffset = getGlobalSymbol(objectInfo.fileName, i->first);
+
+		for (int j = 0; j < importOffsetsData.size(); j++) {
+			binAsIntPtr[importOffsetsData[j] / 4] = globalOffset;
+			exeGlobalOffsetTable.push_back(importOffsetsData[j]);
 		}
-		else {
-			//logger.warning("{s}: Global symbol declared, but not used '{s}'",
-				//objectInfo.fileName.c_str(), i->first.c_str());
-		}
+	}
+
+	// Resolve global offset table values by adding the file offset to each byte.
+	for (int i = 0; i < objectInfo.globalOffsetTable.size(); i++) {
+		int newOffset = fileOffset + binAsIntPtr[objectInfo.globalOffsetTable[i] / sizeof(uint32_t)];
+		binAsIntPtr[objectInfo.globalOffsetTable[i] / sizeof(uint32_t)] = newOffset;
+
+		exeGlobalOffsetTable.push_back(objectInfo.globalOffsetTable[i] + fileOffset);
 	}
 }
 
@@ -145,19 +177,15 @@ void Linker::parseOBJ(const std::string& fileName, OBJInfo& info) {
 			}
 		}
 
-		// Load imported symbols
+		// Load imported symbols in text segment.
 		inputStream.read((char*)&fourByteInput, sizeof(uint32_t));
 
 		for (int i = 0; i < fourByteInput; i++) {
 			std::string nextSymbolName;
 			loadString(inputStream, nextSymbolName);
 
-			if (info.importedSymbolOffsets.find(nextSymbolName) == info.importedSymbolOffsets.end()) {
-				info.importedSymbolOffsets.emplace(nextSymbolName, std::vector<int>());
-			}
-			else {
-				logger.error("Duplicate imported symbol");
-				addError();
+			if (info.importedSymbolOffsetsTextSeg.find(nextSymbolName) == info.importedSymbolOffsetsTextSeg.end()) {
+				info.importedSymbolOffsetsTextSeg.emplace(nextSymbolName, std::vector<int>());
 			}
 
 			int nUses;
@@ -166,10 +194,42 @@ void Linker::parseOBJ(const std::string& fileName, OBJInfo& info) {
 			for (int j = 0; j < nUses; j++) {
 				int offset;
 				inputStream.read((char*)&offset, sizeof(uint32_t));
-				info.importedSymbolOffsets[nextSymbolName].push_back(offset);
+				info.importedSymbolOffsetsTextSeg[nextSymbolName].push_back(offset);
 			}
 		}
 
+		// Load imported symbols in the data segment.
+		inputStream.read((char*)&fourByteInput, sizeof(uint32_t));
+
+		for (int i = 0; i < fourByteInput; i++) {
+			std::string nextSymbolName;
+			loadString(inputStream, nextSymbolName);
+
+			if (info.importedSymbolOffsetsDataSeg.find(nextSymbolName) == info.importedSymbolOffsetsDataSeg.end()) {
+				info.importedSymbolOffsetsDataSeg.emplace(nextSymbolName, std::vector<int>());
+			}
+
+			int nUses;
+			inputStream.read((char*)&nUses, sizeof(uint32_t));
+
+			for (int j = 0; j < nUses; j++) {
+				int offset;
+				inputStream.read((char*)&offset, sizeof(uint32_t));
+				info.importedSymbolOffsetsDataSeg[nextSymbolName].push_back(offset);
+			}
+		}
+
+		// Read global offset table
+		int globalOffsetTableSize = 0;
+		inputStream.read((char*)&globalOffsetTableSize, sizeof(uint32_t));
+		for (int i = 0; i < globalOffsetTableSize; i++) {
+			int byteOffset = 0;
+			inputStream.read((char*)&byteOffset, sizeof(uint32_t));
+			info.globalOffsetTable.push_back(byteOffset);
+		}
+
+		// TODO: size error checking.
+		// Read binary.
 		inputStream.read((char*)&info.binarySize, sizeof(uint32_t));
 
 		if (info.binarySize < 0) {

@@ -2,10 +2,11 @@
 #include <vector>
 
 #include "VirtualMachine.h"
+#include <fstream>
 
-// Define INSTRUCTION_CHO to view what instructions the VM is executing in the console.
+// Define INSTRUCTION_ECHO to view what instructions the VM is executing in the console.
 #if defined(_DEBUG)
-//#define INSTRUCTION_ECHO
+#define INSTRUCTION_ECHO
 #endif
 
 #define INSTRUCTION_SIZE sizeof(uint32_t)
@@ -1404,14 +1405,22 @@ void INST0x30_JC(VirtualMachine& cpu) noexcept {
 /// <param name="cpu"></param>
 void INST0x31_PUSHB(VirtualMachine& cpu) noexcept {
 	cpu.mRegisters[VirtualMachine::PC] += INSTRUCTION_SIZE;
+	uint8_t immreg = 0;
+	bool immediateFlag = GET_IMMEDIATE_FLAG(cpu.mCurrentInstruction);
 
-	uint8_t reg = GET_ARG1(cpu.mCurrentInstruction);
-	uint32_t value = cpu.mRegisters[reg] & 0xFF;
-
-	LOGINST("PUSHB {s}", intRegisterNames[reg]);
+	if (!immediateFlag) {
+		uint32_t reg = GET_ARG1(cpu.mCurrentInstruction);
+		immreg = cpu.mRegisters[reg] & 0xFF;
+		LOGINST("PUSHB {s}", intRegisterNames[reg]);
+	}
+	else {
+		immreg = GETWORD(cpu, cpu.mRegisters[VirtualMachine::PC]) & 0xFF;
+		cpu.mRegisters[VirtualMachine::PC] += INSTRUCTION_SIZE;
+		LOGINST("PUSHB {d}", immreg);
+	}
 
 	cpu.mRegisters[VirtualMachine::SP] -= 1;
-	SETBYTE(cpu, cpu.mRegisters[VirtualMachine::SP], value);
+	SETBYTE(cpu, cpu.mRegisters[VirtualMachine::SP], immreg);
 }
 
 void INST0x32_POPB(VirtualMachine& cpu) noexcept {
@@ -1427,26 +1436,44 @@ void INST0x32_POPB(VirtualMachine& cpu) noexcept {
 
 void INST0x37_PUSHH(VirtualMachine& cpu) noexcept {
 	cpu.mRegisters[VirtualMachine::PC] += INSTRUCTION_SIZE;
+	uint16_t immreg = 0;
+	bool immediateFlag = GET_IMMEDIATE_FLAG(cpu.mCurrentInstruction);
 
-	uint8_t reg = GET_ARG1(cpu.mCurrentInstruction);
-	uint32_t value = cpu.mRegisters[reg] & 0xFFFF;
-
-	LOGINST("PUSHH {s}", intRegisterNames[reg]);
+	if (!immediateFlag) {
+		uint8_t reg = GET_ARG1(cpu.mCurrentInstruction);
+		immreg = cpu.mRegisters[reg] & 0xFFFF;
+		LOGINST("PUSHH {s}", intRegisterNames[reg]);
+	}
+	else {
+		immreg = GETWORD(cpu, cpu.mRegisters[VirtualMachine::PC]) & 0xFFFF;
+		cpu.mRegisters[VirtualMachine::PC] += INSTRUCTION_SIZE;
+		LOGINST("PUSHH {d}", immreg);
+	}
 
 	cpu.mRegisters[VirtualMachine::SP] -= 2;
-	SETHALF(cpu, cpu.mRegisters[VirtualMachine::SP], value);
+	SETHALF(cpu, cpu.mRegisters[VirtualMachine::SP], immreg);
 }
 
 void INST0x38_PUSHW(VirtualMachine& cpu) noexcept {
 	cpu.mRegisters[VirtualMachine::PC] += INSTRUCTION_SIZE;
 
-	uint8_t reg = GET_ARG1(cpu.mCurrentInstruction);
-	uint32_t value = cpu.mRegisters[reg];
+	bool immediateFlag = GET_IMMEDIATE_FLAG(cpu.mCurrentInstruction);
+	uint32_t immreg = 0;
 
-	LOGINST("PUSHW {s}", intRegisterNames[reg]);
+	if (!immediateFlag) {
+		uint8_t reg = GET_ARG1(cpu.mCurrentInstruction);
+		immreg = cpu.mRegisters[reg];
+
+		LOGINST("PUSHW {s}", intRegisterNames[reg]);
+	}
+	else {
+		immreg = GETWORD(cpu, cpu.mRegisters[VirtualMachine::PC]);
+		cpu.mRegisters[VirtualMachine::PC] += INSTRUCTION_SIZE;
+		LOGINST("PUSHW {d}", immreg);
+	}
 
 	cpu.mRegisters[VirtualMachine::SP] -= 4;
-	SETWORD(cpu, cpu.mRegisters[VirtualMachine::SP], value);
+	SETWORD(cpu, cpu.mRegisters[VirtualMachine::SP], immreg);
 }
 
 void INST0x39_POPH(VirtualMachine& cpu) noexcept {
@@ -1610,8 +1637,9 @@ VirtualMachine::VirtualMachine(unsigned int memorySize) :
 
 	logger.setPrefix("[012'[.2tm] 0x[X PC]:] ");
 
-	// Allocate memory for internal memory state
-	mMemory = new uint8_t[memorySize];
+	// Allocate memory for internal memory state.
+	// Allocate as uint32_t ptr to ensure its on a word boundary and sized to a word.
+	mMemory = (uint8_t*)new uint32_t[memorySize / 4];
 
 	initState();
 }
@@ -1627,21 +1655,49 @@ void VirtualMachine::initState() {
 	}
 }
 
-bool VirtualMachine::loadProgram(uint8_t* binary, int size, int index) {
-	if (index + size < mMemorySize) {
-		// Copy provided binary to memory.
-		// Assume compatible endianness!
-		for (int i = index; i < index + size; i++) {
-			mMemory[i] = binary[i - index];
-		}
-	}
+uint32_t VirtualMachine::loadProgram(const std::string& fileName) {
+	// Parse the executable's header.
+	std::ifstream fileInputStream(fileName, std::ios::binary | std::ios::in);
+	
+	if (fileInputStream.is_open()) {
+		fileInputStream.read((char*)&mProgramEntryPoint, sizeof(uint32_t));
 
-	return true;
+		int gotSize = 0;
+		fileInputStream.read((char*)&gotSize, sizeof(uint32_t));
+		int* gotTable = new int[gotSize];
+
+		for (int i = 0; i < gotSize; i++) {
+			fileInputStream.read((char*)&gotTable[i], sizeof(uint32_t));
+		}
+
+		uint32_t binarySize = 0;
+		fileInputStream.read((char*)&binarySize, sizeof(uint32_t));
+
+		// Determine where the file should be written into memory.
+		// We will write it to the back of the mem.
+		int programStart = 0;
+
+		fileInputStream.read((char*)mMemory + programStart, binarySize);
+
+		// Offset each element in the binary's global offset table by the program start.
+		// Program start better be aligned to a word bounadary!!
+		uint32_t* memAsInt = (uint32_t*)mMemory;
+		for (int i = 0; i < gotSize; i++) {
+			memAsInt[(gotTable[i] + programStart) / (int)sizeof(uint32_t)] += programStart;
+		}
+		mProgramEntryPoint += programStart;
+
+		delete[] gotTable;
+		return binarySize;
+	}
+	else {
+		return -1;
+	}
 }
 
-void VirtualMachine::executeProgram(int index, int stackPtr) {
+void VirtualMachine::executeProgram(int stackPtr) {
 	setRunning();
-	mRegisters[PC] = index;
+	mRegisters[PC] = mProgramEntryPoint;
 	mRegisters[SP] = stackPtr;
 
 	uint64_t count = 0;

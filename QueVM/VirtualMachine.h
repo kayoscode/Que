@@ -99,8 +99,8 @@ public:
 	/// <param name="binary"></param>
 	/// <param name="size"></param>
 	/// <param name="index"></param>
-	/// <return>True if it succeded, otherwise false.</return>
-	bool loadProgram(uint8_t* binary, int size, int index);
+	/// <return>The size of the executable binary.</return>
+	uint32_t loadProgram(const std::string& fileName);
 
 	/// <summary>
 	/// Executes a program which has already been loaded
@@ -108,7 +108,7 @@ public:
 	/// Start index must be the same index as the index the program was loaded into
 	/// </summary>
 	/// <param name="index"></param>
-	void executeProgram(int index, int stackPtr);
+	void executeProgram(int stackPtr);
 
 	/// <summary>
 	/// Executes the next instruction in memory and adjusts the Program counter.
@@ -174,6 +174,7 @@ private:
 	bool mSignalStop = false;
 
 	uint32_t mCurrentInstruction = 0;
+	uint32_t mProgramEntryPoint = 0;
 
 	/// <summary>
 	/// Sets flags zero and negative based on result.
@@ -385,5 +386,5 @@ private:
 	friend void SWI_0x02_PRINT_INT(VirtualMachine& cpu) noexcept;
 	friend void SWI_0x03_PRINT_CHAR(VirtualMachine& cpu) noexcept;
 	friend void SWI_0x04_PRINT_FLOAT(VirtualMachine& cpu) noexcept;
-	friend void SWI_0x04_PRINT_STRING(VirtualMachine& cpu) noexcept;
+	friend void SWI_0x05_PRINT_STRING(VirtualMachine& cpu) noexcept;
 };

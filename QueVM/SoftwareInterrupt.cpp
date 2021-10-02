@@ -31,7 +31,7 @@ void SWI_0x01_PRINTF(VirtualMachine& cpu) noexcept {
 /// <param name="cpu"></param>
 /// <returns></returns>
 void SWI_0x02_PRINT_INT(VirtualMachine& cpu) noexcept {
-	std::cout << cpu.mRegisters[VirtualMachine::R0];
+	std::cout << (int)cpu.mRegisters[VirtualMachine::R0];
 }
 
 /// <summary>
@@ -59,7 +59,7 @@ void SWI_0x04_PRINT_FLOAT(VirtualMachine& cpu) noexcept {
 /// </summary>
 /// <param name="cpu"></param>
 /// <returns></returns>
-void SWI_0x04_PRINT_STRING(VirtualMachine& cpu) noexcept {
+void SWI_0x05_PRINT_STRING(VirtualMachine& cpu) noexcept {
 	std::cout << (cpu.mMemory + cpu.mRegisters[VirtualMachine::R0]);
 }
 
@@ -67,7 +67,7 @@ void (*softwareInterruptTable[32])(VirtualMachine& machine) = {
 	SWI_0x00_TERMINATE, 
 	// Printing software interrupts
 	SWI_0x01_PRINTF, SWI_0x02_PRINT_INT, SWI_0x03_PRINT_CHAR,
-	SWI_0x04_PRINT_FLOAT, SWI_0x04_PRINT_STRING
+	SWI_0x04_PRINT_FLOAT, SWI_0x05_PRINT_STRING
 };
 
 void handleSWI(VirtualMachine& cpu, int code) noexcept {

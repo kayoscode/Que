@@ -5,8 +5,43 @@ const SWI_PRINT_CHAR 0x03
 const SWI_PRINT_FLOAT 0x04
 const SWI_PRINT_STRING 0x05
 
+label reverseString
+label strlen
+
+segment data
+	label str:
+		asciiz "\n9 chars\n"
+	label fn:
+		word func
+end
+
 segment text
 	; Entrypoint main - executes main program.
 	entrypt label main:
+		push ra
+		la r0, fn
+		lw r0, r0
+		call r0
+		pop ra
 		swi SWI_EXIT
+		
+	label func:
+		push ra
+		la r8, str
+		push r8
+		call strlen
+		swi SWI_PRINT_INT
+		pop r8
+		
+		; Reverse the string for fun, then print
+		push r8
+		la r0, reverseString
+		call r0
+		pop r8
+		
+		la r0, str
+		swi SWI_PRINT_STRING
+		
+		pop ra
+		ret
 end

@@ -1,2 +1,6 @@
 ﻿C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Microsoft\VC\v160\Microsoft.CppBuild.targets(513,5): warning MSB8028: The intermediate directory (x64\Debug\) contains files shared from another project (Linker.vcxproj).  This can lead to incorrect clean and rebuild behavior.
+  Linker.cpp
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueLinker\Linker.cpp(57,44): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+  quel.cpp
+  Generating Code...
   QueLinker.vcxproj -> C:\Users\Bryce\source\repos\ProgrammingLanguage\x64\Debug\QueLinker.exe

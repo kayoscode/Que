@@ -24,7 +24,7 @@ public:
 			:hasEntryPoint(false),
 			entryPointStart(0),
 			exportedSymbolOffsets(),
-			importedSymbolOffsets(),
+			importedSymbolOffsetsTextSeg(),
 			binarySize(0),
 			binary(nullptr)
 		{
@@ -38,7 +38,9 @@ public:
 		int entryPointStart;
 		std::string fileName;
 		std::map<std::string, int> exportedSymbolOffsets;
-		std::map<std::string, std::vector<int>> importedSymbolOffsets;
+		std::map<std::string, std::vector<int>> importedSymbolOffsetsTextSeg;
+		std::map<std::string, std::vector<int>> importedSymbolOffsetsDataSeg;
+		std::vector<int> globalOffsetTable;
 		int binarySize;
 		char* binary;
 	};
@@ -119,6 +121,7 @@ private:
 	std::vector<int> offsets;
 	std::map<std::string, int> globalSymbols;
 	std::map<std::string, std::string> globalSymbolsOriginalFile;
+	std::vector<int> exeGlobalOffsetTable;
 	int entryPoint = -1;
 	std::string entrypointFile;
 };

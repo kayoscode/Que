@@ -1,0 +1,14 @@
+﻿  Compiler.cpp
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(194,98): warning C4267: 'initializing': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(201,41): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(214,98): warning C4267: 'initializing': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(222,41): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(236,71): warning C4267: 'initializing': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(239,20): warning C4018: '<': signed/unsigned mismatch
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(597,16): warning C4101: 'right': unreferenced local variable
+  qc.cpp
+  Generating code
+  Previous IPDB not found, fall back to full compilation.
+  All 1062 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
+  Finished generating code
+  QueC.vcxproj -> C:\Users\Bryce\source\repos\ProgrammingLanguage\x64\Release\QueC.exe

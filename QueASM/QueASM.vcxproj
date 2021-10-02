@@ -20,7 +20,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Assembler.cpp" />
-    <ClCompile Include="Source.cpp" />
+    <ClCompile Include="qasm.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Assembler.h" />

@@ -1,0 +1,17 @@
+﻿  Compiler.cpp
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.h(205,1): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(159,98): warning C4267: 'initializing': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(166,41): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(179,98): warning C4267: 'initializing': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(187,41): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(201,71): warning C4267: 'initializing': conversion from 'size_t' to 'uint32_t', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(204,20): warning C4018: '<': signed/unsigned mismatch
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(832,2): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(852,38): warning C4244: 'argument': conversion from 'uint64_t' to 'int', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(856,55): warning C4244: 'argument': conversion from 'uint64_t' to 'int', possible loss of data
+  ConstantOps.cpp
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.h(205,1): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+  qc.cpp
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.h(205,1): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+  Generating Code...
+  QueC.vcxproj -> C:\Users\Bryce\source\repos\ProgrammingLanguage\x64\Debug\QueC.exe

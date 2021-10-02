@@ -1,0 +1,28 @@
+const SWI_EXIT 0x00
+const SWI_PRINTF 0x01
+const SWI_PRINT_INT 0x02 
+const SWI_PRINT_CHAR 0x03
+const SWI_PRINT_FLOAT 0x04
+const SWI_PRINT_STRING 0x05
+
+label function
+
+segment text
+	; Entrypoint main - executes main program.
+	entrypt label main:
+		; Load the address of our test array
+		la r0, function
+		swi SWI_PRINT_INT
+		
+		; Call the loaded function
+		push ra
+		call r0
+		pop ra
+		swi SWI_EXIT
+		
+end
+
+segment data
+	label newline:
+		asciiz "\n"
+end

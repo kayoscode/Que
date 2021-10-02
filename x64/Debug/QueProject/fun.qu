@@ -1,0 +1,8 @@
+// TODO: still haven't done imports
+// TODO: arrays, each index should essentially be treated as its own identifier. Introduces operators that return identifiers
+// TODO: constant ptr arithmetic
+
+export fn() function: i32
+{
+	var array: i32[10];
+}

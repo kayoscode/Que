@@ -1,0 +1,16 @@
+export var test: i32 = (0xFFFF);
+export var test2: i32 = (test);
+
+export fn() function: i32
+{
+	var byte: *i8;
+	var byte: *i32;
+	
+	{
+		var test: i32;
+		var test: i32;
+		var test: i32;
+	}
+	
+	var test: i32;var test: i32;
+}
