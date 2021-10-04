@@ -5,19 +5,24 @@ const SWI_PRINT_CHAR 0x03
 const SWI_PRINT_FLOAT 0x04
 const SWI_PRINT_STRING 0x05
 
-label function
+label testFunction
 
 segment text
 	; Entrypoint main - executes main program.
 	entrypt label main:
-		; Load the address of our test array
-		la r0, function
+		la r0, testFunction
 		swi SWI_PRINT_INT
 		
 		; Call the loaded function
 		push ra
 		call r0
 		pop ra
+		
+		; Print the calculated value
+		;mov r0, r5
+		;swi SWI_PRINT_INT
+		;call r0
+		swi SWI_PRINT_INT
 		swi SWI_EXIT
 		
 end

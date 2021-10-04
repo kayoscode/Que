@@ -198,15 +198,15 @@ void (*staticCastFunctions[(int)TypeCode::CONSTANT_TYPE_COUNT][(int)TypeCode::CO
 };
 
 void Compiler::staticCast(TypeCode startingType, TypeCode endingType, ConstantValue& value) {
-	if (startingType >= TypeCode::CONSTANT_TYPE_COUNT || startingType <= TypeCode::UNDEFINED
-		|| endingType >= TypeCode::CONSTANT_TYPE_COUNT || endingType <= TypeCode::UNDEFINED) 
+	if (startingType >= TypeCode::CONSTANT_TYPE_COUNT || startingType < (TypeCode)0
+		|| endingType >= TypeCode::CONSTANT_TYPE_COUNT || endingType < (TypeCode)0) 
 	{
 		// Illegal operation, this error should always be triggered by 
 		// another error which has already been logged.
 		return;
 	}
 
-	if (pass != 0) {
+	if (pass > 1) {
 		if (value.type.ptrCount > 0) {
 			staticCastFunctions[(int)startingType][(int)TypeCode::TYPE_INT32_CODE];
 		}
@@ -217,15 +217,15 @@ void Compiler::staticCast(TypeCode startingType, TypeCode endingType, ConstantVa
 }
 
 void Compiler::writeConstantValueToDataSegment(ConstantValue& value, SymbolInfo& symbolInfo) {
-	if (pass != 0 && !errorsFound) {
+	if (pass > 1 && !errorsFound) {
 		staticCast(value.type.typeCode, symbolInfo.typeInfo.typeCode, value);
 		std::memcpy(output + symbolInfo.value, value.value, value.type.baseSize);
-		symbolStack.globalSymbols.setSymbolDefined(symbolInfo.name);
+		symbolInfo.defined = true;
 	}
 }
 
 void Compiler::getConstantFromDataSegment(ConstantValue& dest, SymbolInfo& info) {
-	if (pass != 0 && !errorsFound) {
+	if (pass > 1 && !errorsFound) {
 		std::memcpy(dest.value, output + info.value, info.typeInfo.baseSize);
 	}
 }
@@ -319,7 +319,7 @@ void Compiler::parseConstantExpression(ConstantValue& left, SymbolInfo& targetSy
 
 	while (isAddop() && (!isEndOfStream()) && (!errorsFound)) {
 		parseAddOp(op);
-		parseConstantExpression(right, targetSymbol, allowRefs);
+		parseConstantTerm(right, targetSymbol, allowRefs);
 		performOperatorOnConstants(left, right, left, op);
 	}
 }
@@ -332,7 +332,7 @@ void Compiler::parseConstantTerm(ConstantValue& left, SymbolInfo& targetSymbol, 
 
 	while ((isMulop() && (!isEndOfStream()) && (!errorsFound))) {
 		parseMulOp(op);
-		parseConstantExpression(right, targetSymbol, allowRefs);
+		parseConstantFactor(right, targetSymbol, allowRefs);
 		performOperatorOnConstants(left, right, left, op);
 	}
 }
@@ -352,6 +352,9 @@ void Compiler::parseConstantFactor(ConstantValue& value, SymbolInfo& targetSymbo
 		else {
 			addError("Expected ')'");
 		}
+	}
+	else if (currentToken.code == MINUS_CODE) {
+		parseConstantExpression(value, targetSymbol, allowRefs);
 	}
 	else {
 		addError("Expected constant value");
@@ -458,28 +461,29 @@ void Compiler::getConstantAddressOfSymbol(const std::string& symbolName, Constan
 		addError("Cannot assign reference to constant");
 	}
 
-	SymbolInfo symbolInfo;
+	SymbolInfo* symbolInfo = symbolStack.searchSymbol(symbolName);
 
-	if (symbolStack.searchSymbol(symbolName, symbolInfo)) {
-		if (symbolInfo.accessType != QueSymbolAccessType::IMPORTED) {
-			if (symbolInfo.symbolType == QueSymbolType::DATA) {
-				value.type.baseSize = symbolInfo.typeInfo.baseSize;
-				value.type.typeCode = symbolInfo.typeInfo.typeCode;
+	if (symbolInfo) {
+		if (symbolInfo->accessType != QueSymbolAccessType::IMPORTED) {
+			if (symbolInfo->symbolType == QueSymbolType::DATA) {
+				value.type.baseSize = symbolInfo->typeInfo.baseSize;
+				value.type.typeCode = symbolInfo->typeInfo.typeCode;
 			}
-			else if (symbolInfo.symbolType == QueSymbolType::FUNCTION ||
-				symbolInfo.symbolType == QueSymbolType::ARRAY) {
+			else if (symbolInfo->symbolType == QueSymbolType::FUNCTION ||
+				symbolInfo->symbolType == QueSymbolType::ARRAY) {
 				value.type.baseSize = 4;
 				value.type.typeCode = TypeCode::TYPE_INT32_CODE;
 			}
 			else {
-				addError("Attempting to obtain a reference for an invalid symbol: '" + symbolInfo.name + "'");
+				// TODO: deal with imported
+				addError("Attempting to obtain a reference for an invalid symbol: '" + symbolInfo->name + "'");
 			}
 
-			((uint32_t*)&value.value)[0] = symbolInfo.value;
-			value.type.ptrCount = symbolInfo.typeInfo.ptrCount + 1;
+			((uint32_t*)&value.value)[0] = symbolInfo->value;
+			value.type.ptrCount = symbolInfo->typeInfo.ptrCount + 1;
 
 			// Add usage of local symbol to the global offset table
-			if (pass != 0) {
+			if (pass > 1) {
 				symbolStack.globalSymbols.addLocalDataSegmentReference(targetSymbol.value);
 			}
 		}
@@ -488,20 +492,20 @@ void Compiler::getConstantAddressOfSymbol(const std::string& symbolName, Constan
 		}
 	}
 	else {
-		addError("Undeclared identifier");
+		addError("Undeclared identifier: " + symbolName);
 	}
 }
 
 bool Compiler::getConstantValueFromIdentifier(ConstantValue& value, SymbolInfo& targetSymbol, bool allowRefs) {
 	bool allowLbls = targetSymbol.symbolType != QueSymbolType::CONST_EXPR;
-	SymbolInfo info;
+	SymbolInfo* info = symbolStack.searchSymbol(currentToken.lexeme);
 	std::string name;
 
-	if (symbolStack.searchSymbol(currentToken.lexeme, info)) {
+	if (info) {
 		name = currentToken.lexeme;
-		value.type.baseSize = info.typeInfo.baseSize;
-		value.type.ptrCount = info.typeInfo.ptrCount;
-		value.type.typeCode = info.typeInfo.typeCode;
+		value.type.baseSize = info->typeInfo.baseSize;
+		value.type.ptrCount = info->typeInfo.ptrCount;
+		value.type.typeCode = info->typeInfo.typeCode;
 	}
 	else {
 		// If the symbol isnt defined, we only care if we are on the second pass, after all symbols have been defined.
@@ -520,12 +524,12 @@ bool Compiler::getConstantValueFromIdentifier(ConstantValue& value, SymbolInfo& 
 	// of operator.
 	// If we are here, the only types which hold addresses are arrays and functions.
 
-	if (info.accessType != QueSymbolAccessType::COMPILER_ACCESS) {
+	if (info->accessType != QueSymbolAccessType::COMPILER_ACCESS) {
 		if (allowRefs) {
-			if (info.symbolType == QueSymbolType::FUNCTION || info.symbolType == QueSymbolType::ARRAY) {
+			if (info->symbolType == QueSymbolType::FUNCTION || info->symbolType == QueSymbolType::ARRAY) {
 				getConstantAddressOfSymbol(name, value, targetSymbol, allowRefs);
 			}
-			else if (info.symbolType == QueSymbolType::DATA) {
+			else if (info->symbolType == QueSymbolType::DATA) {
 				addError("Variable does not have a constant value.");
 				//getConstantFromDataSegment(value, info);
 			}
@@ -535,7 +539,7 @@ bool Compiler::getConstantValueFromIdentifier(ConstantValue& value, SymbolInfo& 
 		}
 	}
 	else {
-		((int*)&value.value)[0] = info.value;
+		((int*)&value.value)[0] = info->value;
 	}
 
 	collectNextToken();
@@ -582,6 +586,9 @@ void Compiler::performOperatorOnConstants(ConstantValue& left, ConstantValue& ri
 		else if (operatorCode == Operator::DIV) {
 			result = leftValue / rightValue;
 		}
+		else if (operatorCode == Operator::MOD) {
+			addError("Modlus is invalid for floating points");
+		}
 
 		((float*)dest.value)[0] = result;
 	}
@@ -601,6 +608,9 @@ void Compiler::performOperatorOnConstants(ConstantValue& left, ConstantValue& ri
 		}
 		else if (operatorCode == Operator::DIV) {
 			result = leftValue / rightValue;
+		}
+		else if (operatorCode == Operator::MOD) {
+			result = leftValue % rightValue;
 		}
 
 		((int*)dest.value)[0] = result;

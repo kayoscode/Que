@@ -142,10 +142,13 @@
     <ClCompile Include="CodeOps.cpp" />
     <ClCompile Include="Compiler.cpp" />
     <ClCompile Include="ConstantOps.cpp" />
+    <ClCompile Include="ProgramFlowOps.cpp" />
     <ClCompile Include="qc.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Compiler.h" />
+    <ClInclude Include="Symbols.h" />
+    <ClInclude Include="Types.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

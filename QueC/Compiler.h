@@ -4,8 +4,11 @@
 #include <map>
 #include <vector>
 #include <cassert>
+#include <stack>
 
 #include "../QueASM/Assembler.h"
+#include "Symbols.h"
+#include "Types.h"
 
 /// <summary>
 /// Given an instruction and raw parameters, calculate an opcode.
@@ -18,9 +21,6 @@
 /// <param name="op3"></param>
 /// <returns></returns>
 extern uint32_t encodeInstruction(uint8_t opcode, bool immediateFlag, uint8_t op1 = 0, uint8_t op2 = 0, uint8_t op3 = 0);
-
-class Compiler;
-#define MAX_CONSTANT_VALUE_SIZE 8
 
 constexpr int COMMA_CODE = 108;
 constexpr int COLON_CODE = 109;
@@ -36,57 +36,9 @@ constexpr int PLUS_CODE = 118;
 constexpr int DIV_CODE = 119;
 constexpr int OPEN_BRACE_CODE = 120;
 constexpr int CLOSE_BRACE_CODE = 121;
+constexpr int MODULUS_CODE = 122;
 
-enum Register {
-	R0, R1, R2, R3,
-	R4, R5, R6, R7,
-	R8, R9, R10, R11,
-	R12, R13, R14, R15,
-	PC, BP, SP, FR, RA,
-	INT_REGISTER_COUNT
-};
-
-enum ModifierFlags {
-	EXPORT_FLAG = 1,
-	EXTERN_FLAG = 2,
-	ARGUMENT_FLAG = 4,
-	ENTRYPT_FLAG = 8,
-	LOCAL_VAR_FLAG = 16,
-};
-
-enum class Operator {
-	MULT,
-	DIV,
-	ADD,
-	SUB
-};
-
-enum class TypeCode {
-	UNDEFINED,
-	TYPE_INT8_CODE,
-	TYPE_INT16_CODE,
-	TYPE_INT32_CODE,
-	TYPE_BOOL_CODE,
-	TYPE_FLOAT32_CODE,
-	CONSTANT_TYPE_COUNT
-};
-
-/// <summary>
-/// Includes all information attached to a typed symbol.
-/// </summary>
-struct TypeInfo {
-	int baseSize = 0;
-	TypeCode typeCode = TypeCode::UNDEFINED;
-	int ptrCount = 0;
-
-	int sizeInMemory() {
-		if (ptrCount > 0) {
-			return 4;
-		}
-
-		return baseSize;
-	}
-};
+#define MAX_CONSTANT_VALUE_SIZE 8
 
 /// <summary>
 /// Holds data for a constant value.
@@ -96,403 +48,6 @@ struct ConstantValue {
 	char value[MAX_CONSTANT_VALUE_SIZE] = { 0 };
 	TypeInfo type;
 };
-
-/// <summary>
-/// Stores a temporary value in code.
-/// Unlike constant value, this is mutated through code, rather
-/// than static manipulation.
-/// A register index is stored as well as type information
-/// </summary>
-struct ParseValue {
-	int variableCode = 0;
-	TypeInfo type;
-};
-
-/// <summary>
-/// Data defined for a type
-/// </summary>
-struct TypeDef {
-	TypeCode code = TypeCode::UNDEFINED;
-	int size = -1;
-};
-
-enum class QueSymbolAccessType {
-	UNDEFINED,
-	LOCAL,
-	IMPORTED,
-	EXPORTED,
-	ARGUMENT,
-	VARIABLE,
-	COMPILER_ACCESS
-};
-
-enum class QueSymbolType {
-	UNDEFINED,
-	DATA,
-	FUNCTION,
-	CONST_EXPR,
-	ARRAY
-};
-
-/// <summary>
-/// Table storing types and their various sizes.
-/// Soon we will have to deal with a type stack, but we can handle that later.
-/// </summary>
-class TypeTable {
-public:
-	TypeTable() :
-		typeData() 
-	{
-	}
-
-	TypeCode addType(const std::string& typeName, int size, TypeCode code) {
-		TypeDef def;
-		def.code = code;
-		def.size = size;
-		typeCodes.emplace(typeName, code);
-		typeData.emplace(code, def);
-		return code;
-	}
-
-	bool typeExists(const std::string& typeName) {
-		return typeCodes.find(typeName) != typeCodes.end();
-	}
-
-	bool typeExists(TypeCode code) {
-		return typeData.find(code) != typeData.end();
-	}
-
-	int getTypeSize(const std::string& typeName) {
-		return typeData[typeCodes[typeName]].size;
-	}
-
-	TypeCode getTypeCode(const std::string& typeName) {
-		return typeCodes[typeName];
-	}
-
-	int getTypeSize(TypeCode code) {
-		return typeData[code].size;
-	}
-
-private:
-	std::map<TypeCode, TypeDef> typeData;
-	std::map<std::string, TypeCode> typeCodes;
-};
-
-struct SymbolInfo {
-	QueSymbolAccessType accessType = QueSymbolAccessType::UNDEFINED;
-	QueSymbolType symbolType = QueSymbolType::UNDEFINED;
-	TypeInfo typeInfo;
-	int value = 0;
-	std::string name;
-
-	// For array types, they have n dimensions, and n sizes per dimension
-	std::vector<int> dimensions;
-	std::vector<int> totalDimensionSizes;
-	int totalElementCount;
-
-	// only applicable to function symbols.
-	// Contains a list of all information about its arguments.
-	std::vector<SymbolInfo> fnArgs;
-	// Used for functions, says whether the symbol has been implemented or not in this assembly.
-	// Used for globals if the variable has been initialized (in pass2)
-	bool defined = false;
-
-	void calculateTotalDimensionElements() {
-		int previousDimensionSize = 1;
-		totalDimensionSizes.resize(dimensions.size());
-
-		for (int i = dimensions.size() - 1; i >= 0; i--) {
-			previousDimensionSize = previousDimensionSize * dimensions[i];
-			totalDimensionSizes[i] = previousDimensionSize;
-		}
-	}
-};
-
-/// <summary>
-/// Local symbol tables don't have to worry about things like imported
-/// and exported symbols.
-/// </summary>
-class LocalSymbolTable {
-public:
-	const int INITIAL_OFFSET_FROM_BP = 0;
-
-	LocalSymbolTable()
-	{
-		clear();
-		// This table is referring to local variables. 
-		// Based on this calling convention, when we enter a new stack frame,
-		// the base pointer comes right before RA, meaning its offset
-		// by 4 bytes from the first stack push.
-		// When adding a variable to the stack frame,
-		// subtract the size first, then copy the value in at the current SP
-		currentOffsetFromBP = INITIAL_OFFSET_FROM_BP;
-	}
-
-	void clear() {
-		symbolInfo.clear();
-		symbolCodes.clear();
-		currentOffsetFromBP = INITIAL_OFFSET_FROM_BP;
-	}
-
-	int addSymbol(const std::string& symbol, const SymbolInfo& info) {
-		if (symbolCodes.find(symbol) == symbolCodes.end()) {
-			symbolCodes[symbol] = symbolCodeIndex;
-			symbolInfo[symbolCodeIndex] = info;
-			return symbolCodeIndex++;
-		}
-		else {
-			return 0;
-		}
-	}
-
-	int getSymbolInfo(const std::string& symbol, SymbolInfo& info) {
-		std::map<std::string, int>::iterator foundSymbol = symbolCodes.find(symbol);
-
-		if (foundSymbol != symbolCodes.end()) {
-			info = symbolInfo[foundSymbol->second];
-			return foundSymbol->second;
-		}
-
-		return 0;
-	}
-
-	bool setSymbolValue(const std::string& symbol, int value) {
-		std::map<std::string, int>::iterator foundSymbol = symbolCodes.find(symbol);
-
-		if (foundSymbol != symbolCodes.end()) {
-			symbolInfo[foundSymbol->second].value = value;
-			return foundSymbol->second;
-		}
-
-		return false;
-	}
-
-	/// <summary>
-	/// Size should be a multiple of 4 to stay on a word boundary.
-	/// </summary>
-	/// <param name="compiler"></param>
-	/// <param name="size"></param>
-	void pushLocalVariable(Compiler* compiler, int size);
-
-	int getLocalBPOffset() {
-		return currentOffsetFromBP - INITIAL_OFFSET_FROM_BP;
-	}
-
-	// Maps a symbol name to some info about it.
-	std::map<int, SymbolInfo> symbolInfo;
-	std::map<std::string, int> symbolCodes;
-	int currentOffsetFromBP = 0;
-
-	// Register management
-	bool registerInUse[INT_REGISTER_COUNT] = { false };
-	std::map<std::string, Register> variableRegisterAllocation;
-
-	// Should be called right before a register is used.
-	void allocateRegister(int variable);
-	void freeRegister(int variable);
-
-	// same for floats
-	int symbolCodeIndex = 1;
-};
-
-class GlobalSymbolTable {
-public:
-	GlobalSymbolTable() {
-		clear();
-	}
-
-	void clear() {
-		globalOffsetTable.clear();
-		exportedSymbolCount = 0;
-		symbolInfo.clear();
-		symbolImportReferencesDataSeg.clear();
-		symbolImportReferencesTextSeg.clear();
-		symbolCodeIndex = 0;
-	}
-
-	bool addSymbol(const std::string& name, const SymbolInfo& info) {
-		std::map<std::string, SymbolInfo>::iterator foundSymbol =
-			symbolInfo.find(name);
-
-		if (foundSymbol == symbolInfo.end()) {
-			symbolInfo.emplace(name, info);
-
-			if (info.accessType == QueSymbolAccessType::EXPORTED) {
-				exportedSymbolCount++;
-			}
-
-			return true;
-		}
-
-		return false;
-	}
-
-	bool getSymbolInfo(const std::string& name, SymbolInfo& info) {
-		std::map<std::string, SymbolInfo>::iterator foundSymbol =
-			symbolInfo.find(name);
-
-		if (foundSymbol != symbolInfo.end()) {
-			info = symbolInfo[name];
-			return true;
-		}
-		return false;
-	}
-
-	void addImportReferenceTextSeg(const std::string& symbol, int binaryOffset) {
-		if (symbolImportReferencesTextSeg.find(symbol) == symbolImportReferencesTextSeg.end()) {
-			symbolImportReferencesTextSeg.emplace(symbol, std::vector<int>());
-		}
-
-		symbolImportReferencesTextSeg[symbol].push_back(binaryOffset);
-	}
-
-	void addImportReferenceDataSeg(const std::string& symbol, int binaryOffset) {
-		if (symbolImportReferencesDataSeg.find(symbol) == symbolImportReferencesDataSeg.end()) {
-			symbolImportReferencesDataSeg.emplace(symbol, std::vector<int>());
-		}
-
-		symbolImportReferencesDataSeg[symbol].push_back(binaryOffset);
-	}
-
-	void addLocalDataSegmentReference(int binaryOffset) {
-		globalOffsetTable.push_back(binaryOffset);
-	}
-
-	void setSymbolDefined(const std::string& symbolName) {
-		symbolInfo[symbolName].defined = true;
-	}
-
-	void setSymbolValue(const std::string& symbolName, int value) {
-		symbolInfo[symbolName].value = value;
-	}
-
-	std::map<std::string, SymbolInfo> symbolInfo;
-	std::map<std::string, std::vector<int>> symbolImportReferencesTextSeg;
-	std::map<std::string, std::vector<int>> symbolImportReferencesDataSeg;
-	int exportedSymbolCount;
-	std::vector<int> globalOffsetTable;
-	int symbolCodeIndex = 0;
-};
-
-class RegisterManager;
-
-/// <summary>
-/// Holds information about a symbol scope.
-/// </summary>
-class SymbolStack {
-public:
-	SymbolStack(Compiler* compiler) {
-		this->compiler = compiler;
-	}
-
-	~SymbolStack() {
-		// Delete each ptr.
-		for (int i = 0; i < localScope.size(); i++) {
-			delete localScope[i];
-		}
-	}
-
-	int getCurrentBPOffset() {
-		assert(!atGlobalScope());
-		return localScope[scopeIndex]->getLocalBPOffset();
-	}
-
-	bool searchSymbol(const std::string& symbol, SymbolInfo& symbolInfo) {
-		for (int i = 0; i < localScope.size(); i++) {
-			if (localScope[i]->getSymbolInfo(symbol, symbolInfo)) {
-				return true;
-			}
-		}
-		// TODO: add any references to the GOT and or import/export refernces for the Global symbols
-
-		// If we cant find it in any local scope, search for it in the global scope.
-		if (globalSymbols.getSymbolInfo(symbol, symbolInfo)) {
-			return true;
-		}
-		
-		// If we are on the first pass, not having symbol information isn't a problem.
-		return false;
-	}
-
-	void addSymbolToCurrentScope(const SymbolInfo& info) {
-		if (scopeIndex >= 0) {
-			// Add to a local scope
-			if (!localScope[scopeIndex]->addSymbol(info.name, info)) {
-				// TODO: variable declared multiple times. big nono.
-			}
-		}
-		else {
-			// Add it to the global scope
-			if (!globalSymbols.addSymbol(info.name, info)) {
-				// TODO: variable declared multiple times in global scope, big nono.
-			}
-		}
-	}
-
-	/// <summary>
-	/// Pushes a new scope.
-	/// </summary>
-	void pushScope() {
-		scopeIndex++;
-		if (scopeIndex >= localScope.size()) {
-			localScope.push_back(new LocalSymbolTable());
-		}
-		//localScope[localScope.size() - 1]->symbolCodeIndex = 
-	}
-
-	/// <summary>
-	/// Removes the previous scope from the list. Will not remove the global stack.
-	/// </summary>
-	bool popScope() {
-		if (scopeIndex >= 0) {
-			localScope[scopeIndex]->clear();
-			scopeIndex--;
-		}
-		else {
-			return false;
-		}
-
-		return true;
-	}
-
-	/// <summary>
-	/// Sends us to the global scope, any identifiers written during this time will
-	/// be written at the global level.
-	/// </summary>
-	void enterPreviousScope() {
-		if (!atGlobalScope()) {
-			if (saveScopeIndex == -1) {
-				saveScopeIndex = scopeIndex;
-			}
-
-			scopeIndex--;
-		}
-	}
-
-	/// <summary>
-	/// If the scope is not pointing to the top, we will reenter it.
-	/// </summary>
-	void enterCurrentScope() {
-		if (saveScopeIndex != -1) {
-			scopeIndex = saveScopeIndex;
-			saveScopeIndex = -1;
-		}
-	}
-
-	bool atGlobalScope() {
-		return scopeIndex < 0;
-	}
-
-	void pushVariable(const std::string& variable);
-
-	int scopeIndex = -1;
-	int saveScopeIndex = -1;
-	std::vector<LocalSymbolTable*> localScope;
-	GlobalSymbolTable globalSymbols;
-	Compiler* compiler;
-};
-
 
 /// <summary>
 /// Class responsible for producing an object file from source code.
@@ -530,7 +85,7 @@ protected:
 	/// Stores it on the current scope.
 	/// </summary>
 	/// <returns></returns>
-	void parseVariableDeclaration(int modifiers, SymbolInfo& symbolInfo, std::vector<SymbolInfo>* args = nullptr);
+	void parseVariableDeclaration(int modifiers, SymbolInfo*& symbolInfo, std::vector<SymbolInfo*>* args = nullptr);
 
 	/// <summary>
 	/// Parses a function definition and leaves the state right before the code block.
@@ -541,14 +96,39 @@ protected:
 	/// <param name="returnType"></param>
 	/// <param name="args"></param>
 	/// <returns></returns>
-	void parseFunctionDefinition(int modifiers, SymbolInfo& symbolInfo);
+	void parseFunctionDefinition(int modifiers, SymbolInfo*& symbolInfo);
 
 	/// <summary>
 	/// A code segment starts with curly braces, and ends with a closing one.
 	/// A new scope is pushed, then closed at the end.
 	/// Code segments may be embedded within another one.
 	/// </summary>
-	void parseCodeSegment();
+	void parseCodeSegment(SymbolInfo*& currentFunction);
+
+	/// <summary>
+	/// Writes an instruction to the output buffer, or increments the offset appropriately.
+	/// </summary>
+	/// <param name="instruction"></param>
+	/// <param name="immediateFlag"></param>
+	/// <param name="immediate"></param>
+	virtual void writeInstruction(int instruction, bool immediateFlag = false, int immediate = 0) {
+		if (pass > 1 && !errorsFound) {
+			uint32_t* instructions = (uint32_t*)output;
+			instructions[currentBinaryOffset / sizeof(uint32_t)] = instruction;
+			currentBinaryOffset += sizeof(uint32_t);
+
+			if (immediateFlag) {
+				instructions[currentBinaryOffset / sizeof(uint32_t)] = immediate;
+				currentBinaryOffset += sizeof(uint32_t);
+			}
+		}
+		else {
+			currentBinaryOffset += sizeof(uint32_t);
+			if (immediateFlag) {
+				currentBinaryOffset += sizeof(uint32_t);
+			}
+		}
+	}
 
 	/// <summary>
 	/// Writes the variable to the code. 
@@ -566,7 +146,7 @@ protected:
 	///  Total size must be a multiple of 4 to stay on a word boundary.
 	/// </summary>
 	void writeSymbolToDataSegment(int totalSize, const SymbolInfo& symbolInfo) {
-		if (pass > 0) {
+		if (pass > 1) {
 			// Zero out the memory on disk.
 			// I don't think it ever qualifies as bad behavior to give a zero intial value.
 			// Random memory is usually worse than zero memory.
@@ -593,7 +173,7 @@ protected:
 	void parseConstantFactor(ConstantValue& value, SymbolInfo& targetSymbolInfo, bool allowRefs);
 	void parseMulOp(Operator& op);
 	void parseAddOp(Operator& op);
-	void parseConst(SymbolInfo& value, bool allowRefs);
+	void parseConst(SymbolInfo*& value, bool allowRefs);
 	bool parseConstantRef(ConstantValue& value, SymbolInfo& symbolInfo, bool allowRefs);
 	void parseConstantArrayInitializer(SymbolInfo& symbolInfo, int previousOffset, int currentDim);
 	void getConstantAddressOfSymbol(const std::string& symbolName, ConstantValue& value, SymbolInfo& symbolInfo, bool allowRefs);
@@ -603,10 +183,14 @@ protected:
 	/// to the disk.
 	/// </summary>
 	/// <param name="info"></param>
-	void parseExpression(SymbolInfo& info);
-	void parseTerm(SymbolInfo& info);
-	void parseFactor(SymbolInfo& info);
-	bool getValueFromToken(SymbolInfo& info);
+	void parseExpression(SymbolInfo*& info);
+	void parseTerm(SymbolInfo*& info);
+	void parseFactor(SymbolInfo*& info);
+	bool getValueFromToken(SymbolInfo*& info);
+	void parseRef(SymbolInfo& info);
+	void parseDeref(SymbolInfo*& info);
+	void getAddressOfSymbol(const std::string& idtName, SymbolInfo& info);
+	void parseIdentifierValue(SymbolInfo*& info);
 
 	/// <summary>
 	/// Returns whether it successfully pulled a constant
@@ -715,6 +299,25 @@ protected:
 
 	bool isMulop();
 	bool isAddop();
+
+	void writeLoadValueFromAddressInstructions(SymbolInfo& info, int offset, int addressReg, int destReg);
+	void writeStoreValueInAddressInstructions(SymbolInfo& info, int offset, int addressReg, int valueReg);
+	/// Writes instructions to load an address and returns an offset to it.
+	int writeLoadAddressInstructions(SymbolInfo& info, int registerToUse);
+
+	/// <summary>
+	/// Reads a value into a set register.
+	/// If it's a global, load the address, then the value
+	/// If its an immediate, perform a mov operator
+	/// If it's a local variable, using the offset from BP, load the value
+	/// </summary>
+	/// <param name="info"></param>
+	/// <param name="registerToUse"></param>
+	void writeLoadValueInstructions(SymbolInfo& info, int registerToUse);
+	void writeLoadValueOrAddressInstructions(SymbolInfo& value, int registerToUse);
+
+	void writeOperatorInstructions(SymbolInfo& left, SymbolInfo& right, Operator op);
+	void writeAssignment(SymbolInfo& left, SymbolInfo& right);
 
 protected:
 	SymbolStack symbolStack;

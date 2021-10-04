@@ -34,7 +34,7 @@ int main(int argc, const char** argv) {
 		if (input.is_open()) {
 			vm.loadProgram(binaryPath);
 
-			vm.executeProgram(10000);
+			vm.executeProgram(vmMemorySize);
 			//vm.printRegisterState();
 			//vm.printFlags();
 			//vm.printMemoryRange(2000, 0x82C);

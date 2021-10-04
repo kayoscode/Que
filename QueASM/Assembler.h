@@ -300,7 +300,7 @@ protected:
 	/// <param name="instruction"></param>
 	/// <param name="immediateFlag"></param>
 	/// <param name="immediate"></param>
-	void writeInstruction(int instruction, bool immediateFlag = false, int immediate = 0) {
+	virtual void writeInstruction(int instruction, bool immediateFlag = false, int immediate = 0) {
 		if (pass != 0 && !errorsFound) {
 			uint32_t* instructions = (uint32_t*)output;
 			instructions[currentBinaryOffset / sizeof(uint32_t)] = instruction;
