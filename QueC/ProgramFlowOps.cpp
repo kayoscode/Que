@@ -35,6 +35,52 @@ void Compiler::writeAssignment(SymbolInfo& left, SymbolInfo& right) {
 	}
 }
 
+/// <summary>
+/// Compare operators either return 1 or 0. One is true and 0 is false. Symbol returned is a boolean.
+/// </summary>
+/// <param name="left"></param>
+/// <param name="right"></param>
+/// <param name="op"></param>
+void Compiler::writeCompareOperatorInstructions(SymbolInfo& left, SymbolInfo& right, Operator op) {
+	int leftRegister = symbolStack.allocateIntRegister(left, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+	int rightRegister = symbolStack.allocateIntRegister(right, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+
+	uint32_t trueMove = 0;
+	uint32_t falseMove = 0;
+
+	if (op == Operator::CMP_GT) {
+		trueMove = encodeInstruction(MOV_G, true, leftRegister);
+		falseMove = encodeInstruction(MOV_LE, true, leftRegister);
+	}
+	else if (op == Operator::CMP_LT) {
+		trueMove = encodeInstruction(MOV_L, true, leftRegister);
+		falseMove = encodeInstruction(MOV_GE, true, leftRegister);
+	}
+	else if (op == Operator::CMP_GTE) {
+		trueMove = encodeInstruction(MOV_GE, true, leftRegister);
+		falseMove = encodeInstruction(MOV_L, true, leftRegister);
+	}
+	else if (op == Operator::CMP_LTE) {
+		trueMove = encodeInstruction(MOV_LE, true, leftRegister);
+		falseMove = encodeInstruction(MOV_G, true, leftRegister);
+	}
+	else if (op == Operator::CMP_EQ) {
+		trueMove = encodeInstruction(MOV_E, true, leftRegister);
+		falseMove = encodeInstruction(MOV_NE, true, leftRegister);
+	}
+	else if (op == Operator::CMP_NE) {
+		trueMove = encodeInstruction(MOV_NE, true, leftRegister);
+		falseMove = encodeInstruction(MOV_E, true, leftRegister);
+	}
+
+	// Write comparison
+	writeInstruction(encodeInstruction(CMP, false, leftRegister, rightRegister));
+	writeInstruction(trueMove, true, 1);
+	writeInstruction(falseMove, true, 0);
+
+	//writeInstruction(opcode);
+}
+
 void Compiler::writeOperatorInstructions(SymbolInfo& left, SymbolInfo& right, Operator op) {
 	// Check to see if we have constants so we can optimize that if necessasry
 	/** TODO left and right can also be constant identifiers
@@ -81,12 +127,12 @@ void Compiler::writeLoadValueOrAddressInstructions(SymbolInfo& value, int regist
 }
 
 void Compiler::writeLoadValueInstructions(SymbolInfo& info, int registerToUse) {
-	if (info.isGlobal) {
+	if (info.isTemporaryValue) {
+		writeInstruction(encodeInstruction(MOV, true, registerToUse), true, info.value);
+	}
+	else if (info.isGlobal) {
 		writeLoadAddressInstructions(info, registerToUse);
 		writeLoadValueFromAddressInstructions(info, 0, registerToUse, registerToUse);
-	}
-	else if (info.isTemporaryValue) {
-		writeInstruction(encodeInstruction(MOV, true, registerToUse), true, info.value);
 	}
 	else {
 		int offsetFromBP = symbolStack.calculateBPOffsetFromCurrentStackFrame(info);
@@ -101,6 +147,12 @@ int Compiler::writeLoadAddressInstructions(SymbolInfo& info, int registerToUse) 
 		if (info.accessType == QueSymbolAccessType::EXPORTED || info.accessType == QueSymbolAccessType::LOCAL) {
 			int rel = info.value - (currentBinaryOffset + 4ULL);
 			writeInstruction(encodeInstruction(LA, true, registerToUse), true, rel);
+		}
+		else if (info.accessType == QueSymbolAccessType::ARGUMENT) {
+			addError("Not really an error, but I am reporting an attempt to reference an argument");
+		}
+		else if (info.accessType == QueSymbolAccessType::COMPILER_ACCESS) {
+			addError("Attempting to get address of compile-time only value");
 		}
 		else {
 			// TODO handle imports

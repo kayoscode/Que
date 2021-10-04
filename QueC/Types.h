@@ -33,6 +33,13 @@ enum class Operator {
 	ADD,
 	SUB,
 	MOD,
+
+	CMP_GT,
+	CMP_LT,
+	CMP_GTE,
+	CMP_LTE,
+	CMP_EQ,
+	CMP_NE,
 };
 
 /// <summary>

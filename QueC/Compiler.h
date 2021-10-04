@@ -38,6 +38,14 @@ constexpr int OPEN_BRACE_CODE = 120;
 constexpr int CLOSE_BRACE_CODE = 121;
 constexpr int MODULUS_CODE = 122;
 
+// Compare ops
+constexpr int GT_CODE = 123;
+constexpr int LT_CODE = 124;
+constexpr int GTE_CODE = 125;
+constexpr int LTE_CODE = 126;
+constexpr int ARE_EQUAL_CODE = 127;
+constexpr int NE_CODE = 128;
+
 #define MAX_CONSTANT_VALUE_SIZE 8
 
 /// <summary>
@@ -173,10 +181,14 @@ protected:
 	void parseConstantFactor(ConstantValue& value, SymbolInfo& targetSymbolInfo, bool allowRefs);
 	void parseMulOp(Operator& op);
 	void parseAddOp(Operator& op);
+	void parseCompareOp(Operator& op);
 	void parseConst(SymbolInfo*& value, bool allowRefs);
 	bool parseConstantRef(ConstantValue& value, SymbolInfo& symbolInfo, bool allowRefs);
 	void parseConstantArrayInitializer(SymbolInfo& symbolInfo, int previousOffset, int currentDim);
 	void getConstantAddressOfSymbol(const std::string& symbolName, ConstantValue& value, SymbolInfo& symbolInfo, bool allowRefs);
+	bool isMulop();
+	bool isAddop();
+	bool isCompareOp();
 
 	/// <summary>
 	/// Parses a simple expression and writes the necessary instructions
@@ -188,6 +200,7 @@ protected:
 	void parseFactor(SymbolInfo*& info);
 	bool getValueFromToken(SymbolInfo*& info);
 	void parseRef(SymbolInfo& info);
+	void parseSizeOf(SymbolInfo*& info);
 	void parseDeref(SymbolInfo*& info);
 	void getAddressOfSymbol(const std::string& idtName, SymbolInfo& info);
 	void parseIdentifierValue(SymbolInfo*& info);
@@ -297,9 +310,6 @@ protected:
 	void getConstantFromDataSegment(ConstantValue& dest, SymbolInfo& info);
 	void writeConstantValueToDataSegment(ConstantValue& value, SymbolInfo& symbolInfo);
 
-	bool isMulop();
-	bool isAddop();
-
 	void writeLoadValueFromAddressInstructions(SymbolInfo& info, int offset, int addressReg, int destReg);
 	void writeStoreValueInAddressInstructions(SymbolInfo& info, int offset, int addressReg, int valueReg);
 	/// Writes instructions to load an address and returns an offset to it.
@@ -317,6 +327,7 @@ protected:
 	void writeLoadValueOrAddressInstructions(SymbolInfo& value, int registerToUse);
 
 	void writeOperatorInstructions(SymbolInfo& left, SymbolInfo& right, Operator op);
+	void writeCompareOperatorInstructions(SymbolInfo& left, SymbolInfo& right, Operator op);
 	void writeAssignment(SymbolInfo& left, SymbolInfo& right);
 
 protected:

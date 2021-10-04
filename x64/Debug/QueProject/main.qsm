@@ -5,13 +5,13 @@ const SWI_PRINT_CHAR 0x03
 const SWI_PRINT_FLOAT 0x04
 const SWI_PRINT_STRING 0x05
 
-label testFunction
+label function
 
 segment text
 	; Entrypoint main - executes main program.
 	entrypt label main:
-		la r0, testFunction
-		swi SWI_PRINT_INT
+		la r0, function
+		;swi SWI_PRINT_INT
 		
 		; Call the loaded function
 		push ra
@@ -30,4 +30,5 @@ end
 segment data
 	label newline:
 		asciiz "\n"
+
 end

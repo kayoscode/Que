@@ -24,12 +24,20 @@ void Compiler::parseExpression(SymbolInfo*& left) {
 		// Negate left
 	}
         
-	while (isAddop() && (!isEndOfStream()) && (!errorsFound)) {
-		parseAddOp(op);
+	while ((isAddop() || isCompareOp()) && (!isEndOfStream()) && (!errorsFound)) {
 		// Create temporary variable for ad op.
 		SymbolInfo* right = new SymbolInfo();
-		parseTerm(right);
-		writeOperatorInstructions(*left, *right, op);
+
+		if (isAddop()) {
+			parseAddOp(op);
+			parseTerm(right);
+			writeOperatorInstructions(*left, *right, op);
+		}
+		else if(isCompareOp()) {
+			parseCompareOp(op);
+			parseTerm(right);
+			writeCompareOperatorInstructions(*left, *right, op);
+		}
 
 		// Don't need to hold on to temporary registers
 		symbolStack.freeIntRegister(*right, false);
@@ -76,6 +84,35 @@ void Compiler::parseFactor(SymbolInfo*& targetSymbol) {
 	}
 }
 
+void Compiler::parseIdentifierValue(SymbolInfo*& symbolInfo) {
+	SymbolInfo* info = symbolStack.searchSymbol(currentToken.lexeme);
+	std::string name;
+
+	if (info) {
+		name = symbolInfo->name;
+		*symbolInfo = *info;
+		symbolInfo->name = name;
+
+		if (symbolInfo->accessType == QueSymbolAccessType::COMPILER_ACCESS) {
+			symbolInfo->isTemporaryValue = true;
+		}
+		else {
+			if (symbolInfo->symbolType == QueSymbolType::ARRAY || symbolInfo->symbolType == QueSymbolType::FUNCTION) {
+				symbolInfo->typeInfo.ptrCount++;
+			}
+			symbolInfo->isTemporaryValue = false;
+		}
+	}
+	else {
+		// If the symbol isnt defined, we only care if we are on the second pass, after all symbols have been defined.
+		if (pass != 0) {
+			addError("Undefined symbol");
+		}
+	}
+
+	collectNextToken();
+}
+
 /// <summary>
 /// Returns a variable 
 /// </summary>
@@ -92,7 +129,7 @@ bool Compiler::getValueFromToken(SymbolInfo*& info) {
 	symbolStack.addSymbolToCurrentScope(info);
 
 	if (currentToken.code == IDENTIFIER_CODE) {
-		//parseIdentifierValue(info);
+		parseIdentifierValue(info);
 	}
 	else if (currentToken.code == FLOAT_CODE) {
 		// TODO
@@ -153,11 +190,53 @@ bool Compiler::getValueFromToken(SymbolInfo*& info) {
 			addError("Expected '('");
 		}
 	}
+	else if (currentToken.code == reserveTable.getReserveCode("sizeof")) {
+		collectNextToken();
+		if (currentToken.code == OPEN_PARN_CODE) {
+			collectNextToken();
+			parseSizeOf(info);
+			if (currentToken.code != CLOSE_PARN_CODE) {
+				addError("Expected ')'");
+			}
+			collectNextToken();
+		}
+		else {
+			addError("Expected '('");
+		}
+	}
 	else {
 		return false;
 	}
 
 	return true;
+}
+
+void Compiler::parseSizeOf(SymbolInfo*& symbol) {
+	bool success = false;
+	std::string identifierName;
+	if (currentToken.code == IDENTIFIER_CODE) {
+		identifierName = currentToken.lexeme;
+		collectNextToken();
+		success = true;
+	}
+	else {
+		addError("Expected identifier");
+	}
+
+	// Now we can figure out what the address is
+	if (success) {
+		SymbolInfo* info = symbolStack.searchSymbol(identifierName);
+		if (info) {
+			// Determine the total size of the variable in bytes and move to the immediate valeu
+			symbol->isTemporaryValue = true;
+			symbol->value = info->calculateTotalSize();
+		}
+		else {
+			if (pass != 0) {
+				addError("Undeclared identifier: " + identifierName);
+			}
+		}
+	}
 }
 
 void Compiler::parseDeref(SymbolInfo*& info) {
@@ -283,7 +362,7 @@ int SymbolStack::allocateIntRegister(SymbolInfo& info, RegisterAllocMode mode) {
 		SymbolInfo* toFree = nullptr;
 		for (std::map<std::string, Register>::iterator i =
 			registerAllocationStack[scopeIndex].begin(); i != registerAllocationStack[scopeIndex].end();
-			i++) 
+			i++)
 		{
 			if (i->second == toUse) {
 				toFree = searchSymbol(i->first);
@@ -293,9 +372,6 @@ int SymbolStack::allocateIntRegister(SymbolInfo& info, RegisterAllocMode mode) {
 
 		if (toFree) {
 			freeIntRegister(*toFree, true);
-		}
-		else {
-			compiler->addError("Something went very wrong freeing register use");
 		}
 	}
 	else {

@@ -1,0 +1,37 @@
+const SWI_EXIT 0x00
+const SWI_PRINTF 0x01
+const SWI_PRINT_INT 0x02 
+const SWI_PRINT_CHAR 0x03
+const SWI_PRINT_FLOAT 0x04
+const SWI_PRINT_STRING 0x05
+
+label testFunction1
+label testFunction2
+
+segment text
+	entrypt label main:
+		call testFunction1
+		cmp r0, 184041
+		jne fail
+		
+		call testFunction2
+		cmp r0, 100
+		jne fail
+		
+		label success:
+		la r0, testCasesPassed
+		swi SWI_PRINT_STRING
+		swi SWI_EXIT
+		
+		label fail:
+		la r0, testCaseFailed
+		swi SWI_PRINT_STRING
+		swi SWI_EXIT
+end
+
+segment data
+	label testCaseFailed:
+		asciiz "A test case has failed\n";
+	label testCasesPassed:
+		asciiz "All test cases passed!\n";
+end

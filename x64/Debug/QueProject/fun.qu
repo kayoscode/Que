@@ -1,32 +1,17 @@
-// TODO: still haven't done imports
-// TODO: arrays, each index should essentially be treated as its own identifier. Introduces operators that return identifiers
-// TODO: constant ptr arithmetic
-
-// IMPORTANT -----------------------
-// TODO: everywhere where I updated the SymbolInfo in the instructions, it needs to be updated in the system.
-
-// things to test.
-// If you write to a variable, does the value change at the reference?
-// If you use the value of a variable after it has been assigned, does the value change?
-
-constant value: i32 = 100;
-export var testVar: i32 = 101;
+constant testConstant: i32 = 1;
+export var testVar: i32 = 256;
 
 var testArray: i16[2][5] = {
 	{ 1, 2, 3, 4, 5 },
 	{ 10, 20, 30, 40, 50 }
 };
 
+//export fn() testFunction1: i32
+//{
+	//return ((testVar * testVar / 100) * (testVar * testVar / 100) / 100) * ((testVar * testVar / 100) * (testVar * testVar / 100) / 100) / 100;
+//}
+
 export fn() function: i32
 {
-	var testArray: i32 = 10;
-	return ref(testFunction);
-}
-
-export fn() testFunction: i32
-{
-	var temporary: i32 = deref(ref(testVar)) * deref(ref(testVar)) / 100;
-	var temporary2: i32 = deref(ref(temporary)) * deref(ref(temporary)) / 100;
-	return deref(ref(temporary2)) * deref(ref(temporary2)) / 100;
-	//return ((deref(ref(testVar)) * deref(ref(testVar)) / 100) * (deref(ref(testVar)) * deref(ref(testVar)) / 100) / 100) * ((deref(ref(testVar)) * deref(ref(testVar)) / 100) * (deref(ref(testVar)) * deref(ref(testVar)) / 100) / 100) / 100;
+	if;
 }

@@ -32,6 +32,8 @@ Compiler::Compiler()
 	reserveTable.addReserveWord("ref", currentCode++);
 	reserveTable.addReserveWord("deref", currentCode++);
 	reserveTable.addReserveWord("return", currentCode++);
+	reserveTable.addReserveWord("sizeof", currentCode++);
+	reserveTable.addReserveWord("if", currentCode++);
 	// entrypt is an attribute which can be attached to a function. Only one may be defined per assembly.
 	// Indicates where the program should start in the bin.
 
@@ -414,7 +416,33 @@ void Compiler::parseCodeSegment(SymbolInfo*& currentFunction) {
 
 			// TODO: the function needs to remember it's return address between passes
 			// so it can fill it in properly in pass 2/3
-			// ALSO memory is leaked in parse variable declaration!!!
+		}
+		else if (currentToken.code == IDENTIFIER_CODE) {
+			// It could either be an assignment or a function call
+			SymbolInfo* value = symbolStack.searchSymbol(currentToken.lexeme);
+			if (!value) {
+				if (pass != 0) {
+					addError("Undefined symbol: " + currentToken.lexeme);
+				}
+				collectNextToken();
+				continue;
+			}
+
+			collectNextToken();
+
+			if (currentToken.code == OPEN_PARN_CODE) {
+				// Parse a function call
+			}
+			else if (currentToken.code == EQUALS_CODE) {
+				// Parse variable assignment
+				collectNextToken();
+				SymbolInfo* info = new SymbolInfo();
+				parseExpression(info);
+				writeAssignment(*value, *info);
+			}
+		}
+		else if (currentToken.code == reserveTable.getReserveCode("if")) {
+			collectNextToken();
 		}
 		else if (currentToken.code == CLOSE_BRK_CODE) {
 			collectNextToken();
@@ -788,6 +816,34 @@ bool Compiler::readOneTwoChar() {
 		currentToken.lexeme = ",";
 		currentToken.code = COMMA_CODE;
 	}
+	else if (buffer[bufferIndex] == '>' && buffer[bufferIndex + 1] == '=') {
+		currentToken.lexeme = ">=";
+		currentToken.code = GTE_CODE;
+		bufferIndex++;
+	}
+	else if (buffer[bufferIndex] == '<' && buffer[bufferIndex + 1] == '=') {
+		currentToken.lexeme = "<=";
+		currentToken.code = LTE_CODE;
+		bufferIndex++;
+	}
+	else if (buffer[bufferIndex] == '=' && buffer[bufferIndex + 1] == '=') {
+		currentToken.lexeme = "==";
+		currentToken.code = ARE_EQUAL_CODE;
+		bufferIndex++;
+	}
+	else if (buffer[bufferIndex] == '!' && buffer[bufferIndex + 1] == '=') {
+		currentToken.lexeme = "!=";
+		currentToken.code = NE_CODE;
+		bufferIndex++;
+	}
+	else if (buffer[bufferIndex] == '>') {
+		currentToken.lexeme = '>';
+		currentToken.code = GT_CODE;
+	}
+	else if (buffer[bufferIndex] == '<') {
+		currentToken.lexeme = '<';
+		currentToken.code = LT_CODE;
+	}
 	else if (buffer[bufferIndex] == ':') {
 		currentToken.lexeme = ":";
 		currentToken.code = COLON_CODE;
@@ -853,17 +909,10 @@ bool Compiler::readOneTwoChar() {
 
 void SymbolStack::pushVariable(SymbolInfo& symbol) {
 	// Compute total number of elements, 1 if it's not an array
-	uint64_t totalElements = 1;
-	for (int i = symbol.dimensions.size() - 1; i >= 0; i--) {
-		totalElements *= symbol.dimensions[i];
-	}
-
-	uint64_t size = symbol.typeInfo.sizeInMemory();
-
-	size *= totalElements;
+	uint64_t size = symbol.calculateTotalSize();
 	size = (size + 3) & 0xFFFFFFFC;
 
-	if (totalElements > INT32_MAX) {
+	if (size > INT32_MAX) {
 		compiler->addError("Array surpasses max size of: 2Gb");
 		return;
 	}
@@ -913,6 +962,26 @@ bool Compiler::isMulop() {
 	return false;
 }
 
+bool Compiler::isCompareOp() {
+	if (currentToken.code == GT_CODE) {
+	}
+	else if (currentToken.code == GTE_CODE) {
+	}
+	else if (currentToken.code == LT_CODE) {
+	}
+	else if (currentToken.code == LTE_CODE) {
+	}
+	else if (currentToken.code == ARE_EQUAL_CODE) {
+	}
+	else if (currentToken.code == NE_CODE) {
+	}
+	else {
+		return false;
+	}
+
+	return true;
+}
+
 void Compiler::parseMulOp(Operator& op) {
 	if (currentToken.code == STAR_CODE) {
 		op = Operator::MULT;
@@ -938,6 +1007,32 @@ void Compiler::parseAddOp(Operator& op) {
 	}
 	else {
 		addError("Expected add operator");
+	}
+
+	collectNextToken();
+}
+
+void Compiler::parseCompareOp(Operator& op) {
+	if (currentToken.code == GT_CODE) {
+		op = Operator::CMP_GT;
+	}
+	else if (currentToken.code == GTE_CODE) {
+		op = Operator::CMP_GTE;
+	}
+	else if (currentToken.code == LT_CODE) {
+		op = Operator::CMP_LT;
+	}
+	else if (currentToken.code == LTE_CODE) {
+		op = Operator::CMP_LTE;
+	}
+	else if (currentToken.code == ARE_EQUAL_CODE) {
+		op = Operator::CMP_EQ;
+	}
+	else if (currentToken.code == NE_CODE) {
+		op = Operator::CMP_NE;
+	}
+	else {
+		addError("Expected comparison operator");
 	}
 
 	collectNextToken();

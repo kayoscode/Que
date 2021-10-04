@@ -67,6 +67,18 @@ struct SymbolInfo {
 			totalDimensionSizes[i] = previousDimensionSize;
 		}
 	}
+
+	int calculateTotalSize() {
+		uint64_t totalElements = 1;
+		for (int i = this->dimensions.size() - 1; i >= 0; i--) {
+			totalElements *= this->dimensions[i];
+		}
+
+		uint64_t size = this->typeInfo.sizeInMemory();
+
+		size *= totalElements;
+		return size;
+	}
 };
 
 /// <summary>
