@@ -86,10 +86,9 @@ void Compiler::parseFactor(SymbolInfo*& targetSymbol) {
 
 void Compiler::parseIdentifierValue(SymbolInfo*& symbolInfo) {
 	SymbolInfo* info = symbolStack.searchSymbol(currentToken.lexeme);
-	std::string name;
+	std::string name = symbolInfo->name;
 
 	if (info) {
-		name = symbolInfo->name;
 		*symbolInfo = *info;
 		symbolInfo->name = name;
 
@@ -126,10 +125,12 @@ bool Compiler::getValueFromToken(SymbolInfo*& info) {
 	info->isGlobal = false;
 	info->isTemporaryValue = true;
 	info->value = TEMPORARY_VARIABLE_NOT_ON_STACK_VALUE;
+	info->temporaryRegisterBPOffset = TEMPORARY_VARIABLE_NOT_ON_STACK_VALUE;
 	symbolStack.addSymbolToCurrentScope(info);
 
 	if (currentToken.code == IDENTIFIER_CODE) {
 		parseIdentifierValue(info);
+		info->temporaryRegisterBPOffset = TEMPORARY_VARIABLE_NOT_ON_STACK_VALUE;
 	}
 	else if (currentToken.code == FLOAT_CODE) {
 		// TODO
@@ -415,22 +416,20 @@ void SymbolStack::freeIntRegister(SymbolInfo& info, bool preserveValue) {
 
 		if (preserveValue) {
 			// Put the variable in its proper location on stack if needed
-			if (info.isTemporaryValue || info.value == TEMPORARY_VARIABLE_NOT_ON_STACK_VALUE) {
+			if (info.isTemporaryValue || info.value == TEMPORARY_VARIABLE_NOT_ON_STACK_VALUE ||
+				info.temporaryRegisterBPOffset == TEMPORARY_VARIABLE_NOT_ON_STACK_VALUE) {
 				// Create local stack space.
 				info.isTemporaryValue = false;
 				info.accessType = QueSymbolAccessType::VARIABLE;
 				info.symbolType = QueSymbolType::DATA;
+				info.isGlobal = false;
 				pushVariable(info);
+				info.temporaryRegisterBPOffset = info.value;
 			}
 
 			// Store the result on stack.
-			int offset = compiler->writeLoadAddressInstructions(info, R1);
-			if (offset == 0) {
-				compiler->writeStoreValueInAddressInstructions(info, 0, R1, registerToFree);
-			}
-			else {
-				compiler->writeStoreValueInAddressInstructions(info, offset, BP, registerToFree);
-			}
+			int offset = compiler->symbolStack.calculateBPOffsetFromCurrentStackFrame(info);
+			compiler->writeStoreValueInAddressInstructions(info, offset, BP, registerToFree);
 		}
 
 		availableRegisters[scopeIndex].push(registerToFree);

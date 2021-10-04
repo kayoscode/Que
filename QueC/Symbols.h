@@ -41,6 +41,7 @@ struct SymbolInfo {
 	QueSymbolType symbolType = QueSymbolType::UNDEFINED;
 	TypeInfo typeInfo;
 	int value = 0;
+	int temporaryRegisterBPOffset = -1;
 	bool isGlobal = false;
 	bool isTemporaryValue = false;
 	int stackFrameIndex = 0;
@@ -54,6 +55,11 @@ struct SymbolInfo {
 	// only applicable to function symbols.
 	// Contains a list of all information about its arguments.
 	std::vector<SymbolInfo*> fnArgs;
+	// Stores a list of places to jump to when escaping stackframes.
+	int baseStackFrameSize = 0;
+	int functionReturnPointer = 0;
+	std::vector<std::vector<int>> functionReturnPointers; 
+	std::vector<std::vector<int>> functionStackFrameSizes; 
 	// Used for functions, says whether the symbol has been implemented or not in this assembly.
 	// Used for globals if the variable has been initialized (in pass2)
 	bool defined = false;
@@ -148,6 +154,7 @@ public:
 	// Maps a symbol name to some info about it.
 	std::map<std::string, SymbolInfo*> symbolInfo;
 	int currentOffsetFromBP = 0;
+	int totalFrameSize = 0;
 };
 
 class GlobalSymbolTable {
@@ -180,10 +187,19 @@ public:
 			return true;
 		}
 		else {
-			//delete info;
+			// Preserve the variables you want to carry over between rounds
 			SymbolInfo* previous = info;
+			int previousFunctionReturn = symbolInfo[name]->functionReturnPointer;
+			int previousStackFrameSize = symbolInfo[name]->baseStackFrameSize;
+			std::vector<std::vector<int>> previousFnReturnPtrs = symbolInfo[name]->functionReturnPointers;
+			std::vector<std::vector<int>> previousFrameSizes = symbolInfo[name]->functionStackFrameSizes;
+
 			*symbolInfo[name] = *previous;
 			info = symbolInfo[name];
+			info->functionReturnPointer = previousFunctionReturn;
+			info->functionReturnPointers = previousFnReturnPtrs;
+			info->functionStackFrameSizes = previousFrameSizes;
+			info->baseStackFrameSize = previousStackFrameSize;
 			delete previous;
 		}
 
@@ -258,12 +274,20 @@ public:
 		return localScope[scopeIndex]->getLocalBPOffset();
 	}
 
-	int calculateBPOffsetFromCurrentStackFrame(SymbolInfo& symbol) {
-		int offset = symbol.value;
+	void setFrameSize(int offset) {
+		assert(!atGlobalScope());
+		localScope[scopeIndex]->totalFrameSize = offset;
+	}
 
-		for (int i = symbol.stackFrameIndex; i < scopeIndex; i++) {
-			offset -= localScope[i]->currentOffsetFromBP;
-			offset -= OFFSET_BETWEEN_FRAMES;
+	int calculateBPOffsetFromCurrentStackFrame(SymbolInfo& symbol) {
+		assert(!atGlobalScope());
+		int offset = symbol.value;
+		// The base ptr lies at the very bottom of the current scope.
+		// Loop from zero to the symbol's frame index and count up the total offset.
+
+		for (int i = 0; i < symbol.stackFrameIndex; i++) {
+			offset += localScope[i]->totalFrameSize;
+			//offset -= OFFSET_BETWEEN_FRAMES;
 		}
 
 		return -offset;
@@ -285,7 +309,7 @@ public:
 
 	SymbolInfo* searchSymbol(const std::string& symbol) {
 		SymbolInfo* ret;
-		for (int i = 0; i < localScope.size(); i++) {
+		for (int i = localScope.size() - 1; i >= 0; i--) {
 			ret = localScope[i]->getSymbolInfo(symbol);
 			if (ret) {
 				return ret;
@@ -349,6 +373,7 @@ public:
 	/// </summary>
 	bool popScope() {
 		if (scopeIndex >= 0) {
+			assert(registerInUse[scopeIndex].size() == 0);
 			localScope[scopeIndex]->clear();
 			registerAllocationStack.pop_back();
 			registerInUse.pop_back();

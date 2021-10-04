@@ -1,10 +1,12 @@
-constant testConstant: i32 = 1;
-export var testVar: i32 = 256;
+//constant testVar: i32 = 256;
 
-var testArray: i16[2][5] = {
+var testArray: i8[2][5] = {
 	{ 1, 2, 3, 4, 5 },
 	{ 10, 20, 30, 40, 50 }
 };
+
+constant hahaThisIsTheReturn: i32 = 256;
+export var testVar: i32 = 256;
 
 //export fn() testFunction1: i32
 //{
@@ -13,5 +15,13 @@ var testArray: i16[2][5] = {
 
 export fn() function: i32
 {
-	if;
+	{
+		var v1: i32 = (testVar * testVar / 100);
+		{
+			var v2: i32 = (v1 * v1 / 100);
+			{
+				return v2 * v2 / 100;
+			}
+		}
+	}
 }

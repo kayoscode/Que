@@ -110,8 +110,9 @@ protected:
 	/// A code segment starts with curly braces, and ends with a closing one.
 	/// A new scope is pushed, then closed at the end.
 	/// Code segments may be embedded within another one.
+	/// The return indicates the number of stack frames to jump out of.
 	/// </summary>
-	void parseCodeSegment(SymbolInfo*& currentFunction);
+	int parseCodeSegment(SymbolInfo*& currentFunctions, int scopeLevel, int scopeReturnAddress);
 
 	/// <summary>
 	/// Writes an instruction to the output buffer, or increments the offset appropriately.

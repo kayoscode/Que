@@ -33,7 +33,6 @@ Compiler::Compiler()
 	reserveTable.addReserveWord("deref", currentCode++);
 	reserveTable.addReserveWord("return", currentCode++);
 	reserveTable.addReserveWord("sizeof", currentCode++);
-	reserveTable.addReserveWord("if", currentCode++);
 	// entrypt is an attribute which can be attached to a function. Only one may be defined per assembly.
 	// Indicates where the program should start in the bin.
 
@@ -378,17 +377,14 @@ bool Compiler::getTypeFromToken(SymbolInfo& typeInfo) {
 /// Here, we should be given a list of instructions that will finally be terminated
 /// by a closing bracket.
 /// </summary>
-void Compiler::parseCodeSegment(SymbolInfo*& currentFunction) {
-	symbolStack.pushScope();
-	// Setup stack frame
-	// We know the stack is already aligned because that's the caller's job
-	// PUSH bp
-	// mov bp, sp
-	// push ra
-
-	writeInstruction(encodeInstruction(PUSHW, false, RA));
-	writeInstruction(encodeInstruction(PUSHW, false, BP));
-	writeInstruction(encodeInstruction(MOV, false, BP, SP));
+int Compiler::parseCodeSegment(SymbolInfo*& currentFunction, int scopeLevel, int scopeReturnAddress) {
+	// Add a return point to this stackframe.
+	if (scopeLevel + 1 > (int)currentFunction->functionReturnPointers.size()) {
+		currentFunction->functionReturnPointers.push_back(std::vector<int>());
+		currentFunction->functionStackFrameSizes.push_back(std::vector<int>());
+	}
+	int subStackCount = 0;
+	int popStackFrames = -1;
 
 	while (!isEndOfStream()) {
 		bool needsSemi = true;
@@ -412,10 +408,10 @@ void Compiler::parseCodeSegment(SymbolInfo*& currentFunction) {
 				symbolStack.freeIntRegister(*info, false);
 			}
 
-			// Move the value into the return register
+			writeInstruction(encodeInstruction(JMP, true), true,
+				scopeReturnAddress - (currentBinaryOffset + 4ULL));
 
-			// TODO: the function needs to remember it's return address between passes
-			// so it can fill it in properly in pass 2/3
+			popStackFrames = scopeLevel - 1;
 		}
 		else if (currentToken.code == IDENTIFIER_CODE) {
 			// It could either be an assignment or a function call
@@ -441,12 +437,59 @@ void Compiler::parseCodeSegment(SymbolInfo*& currentFunction) {
 				writeAssignment(*value, *info);
 			}
 		}
-		else if (currentToken.code == reserveTable.getReserveCode("if")) {
+		else if (currentToken.code == OPEN_BRK_CODE) {
+			int addr = 0;
+			int stackFrameSize = 0;
+			if (pass != 0) {
+				addr = currentFunction->functionReturnPointers[scopeLevel][subStackCount];
+				stackFrameSize = currentFunction->functionStackFrameSizes[scopeLevel][subStackCount];
+			}
+
+			// Make space for the variables
+			writeInstruction(encodeInstruction(SUB, true, SP, SP, 0), true, stackFrameSize);
+
 			collectNextToken();
+			symbolStack.pushScope();
+			symbolStack.setFrameSize(stackFrameSize);
+			int retPopStk = parseCodeSegment(currentFunction, scopeLevel + 1, addr);
+
+			// Normal stack frame exit: fix SP, jump past the stack frame terminator
+
+			if (pass == 0) {
+				currentFunction->functionReturnPointers[scopeLevel].push_back(currentBinaryOffset);
+				currentFunction->functionStackFrameSizes[scopeLevel].push_back(symbolStack.getCurrentBPOffset());
+			}
+			else {
+				currentFunction->functionReturnPointers[scopeLevel][subStackCount] = currentBinaryOffset;
+				currentFunction->functionStackFrameSizes[scopeLevel][subStackCount] = symbolStack.getCurrentBPOffset();
+			}
+
+			subStackCount++;
+
+			// First restore the stackpointer.
+			if (symbolStack.getCurrentBPOffset() != 0) {
+				writeInstruction(encodeInstruction(ADD, true, SP, SP, 0), true, symbolStack.getCurrentBPOffset());
+			}
+			symbolStack.popScope();
+
+			if (retPopStk >= 0) {
+				writeInstruction(encodeInstruction(JMP, true), true,
+					scopeReturnAddress - (currentBinaryOffset + 4ULL));
+			}
+
+			retPopStk -= 1;
+			if (retPopStk > popStackFrames) {
+				popStackFrames = retPopStk;
+			}
+
+			needsSemi = false;
 		}
 		else if (currentToken.code == CLOSE_BRK_CODE) {
 			collectNextToken();
 			break;
+		}
+		else if (currentToken.code == SEMICOLON_CODE) {
+			collectNextToken();
 		}
 		else {
 			addError("Unexpected token");
@@ -465,17 +508,7 @@ void Compiler::parseCodeSegment(SymbolInfo*& currentFunction) {
 		}
 	}
 
-	// First restore the stackpointer.
-	if (symbolStack.getCurrentBPOffset() != 0) {
-		writeInstruction(encodeInstruction(ADD, true, SP, SP, 0), true, symbolStack.getCurrentBPOffset());
-	}
-
-	// pop bp
-	// mov sp, bp
-	writeInstruction(encodeInstruction(POPW, false, BP));
-	writeInstruction(encodeInstruction(POPW, false, RA));
-
-	symbolStack.popScope();
+	return popStackFrames;
 }
 
 /// <summary>
@@ -559,9 +592,38 @@ void Compiler::parseFunctionDefinition(int modifiers, SymbolInfo*& functionSymbo
 			// ... parse code block
 			if (currentToken.code == OPEN_BRK_CODE) {
 				collectNextToken();
-				
+				symbolStack.pushScope();
+				symbolStack.setFrameSize(functionSymbol->baseStackFrameSize);
+				// Setup stack frame
+				// We know the stack is already aligned because that's the caller's job
+				// PUSH bp
+				// mov bp, sp
+				// push ra
+
+				writeInstruction(encodeInstruction(PUSHW, false, RA));
+				writeInstruction(encodeInstruction(PUSHW, false, BP));
+				writeInstruction(encodeInstruction(MOV, false, BP, SP));
+
+				// Subtract stack space for the variables
+				writeInstruction(encodeInstruction(SUB, true, SP, SP), true, functionSymbol->baseStackFrameSize);
+
 				// Function return address stores the place to jump to when return is called.
-				parseCodeSegment(functionSymbol);
+				parseCodeSegment(functionSymbol, 0, functionSymbol->functionReturnPointer);
+
+				functionSymbol->functionReturnPointer = currentBinaryOffset;
+				functionSymbol->baseStackFrameSize = symbolStack.getCurrentBPOffset();
+
+				// First restore the stackpointer.
+				if (symbolStack.getCurrentBPOffset() != 0) {
+					writeInstruction(encodeInstruction(ADD, true, SP, SP, 0), true, symbolStack.getCurrentBPOffset());
+				}
+
+				// pop bp
+				// mov sp, bp
+				writeInstruction(encodeInstruction(POPW, false, BP));
+				writeInstruction(encodeInstruction(POPW, false, RA));
+
+				symbolStack.popScope();
 
 				// ret = jmp ra
 				if (addRet) {
@@ -940,7 +1002,7 @@ void SymbolStack::pushVariable(SymbolInfo& symbol) {
 }
 
 void LocalSymbolTable::pushLocalVariable(Compiler* compiler, int size) {
-	compiler->writeInstruction(encodeInstruction(SUB, true, SP, SP, 0), true, size);
+	//compiler->writeInstruction(encodeInstruction(SUB, true, SP, SP, 0), true, size);
 	currentOffsetFromBP += size;
 }
 

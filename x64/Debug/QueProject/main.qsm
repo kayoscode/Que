@@ -18,17 +18,11 @@ segment text
 		call r0
 		pop ra
 		
-		; Print the calculated value
-		;mov r0, r5
-		;swi SWI_PRINT_INT
-		;call r0
 		swi SWI_PRINT_INT
 		swi SWI_EXIT
-		
 end
 
 segment data
 	label newline:
 		asciiz "\n"
-
 end

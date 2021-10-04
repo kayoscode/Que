@@ -119,7 +119,10 @@ void Compiler::writeOperatorInstructions(SymbolInfo& left, SymbolInfo& right, Op
 
 void Compiler::writeLoadValueOrAddressInstructions(SymbolInfo& value, int registerToUse) {
 	if (value.symbolType == QueSymbolType::ARRAY || value.symbolType == QueSymbolType::FUNCTION) {
-		writeLoadAddressInstructions(value, registerToUse);
+		int offset = writeLoadAddressInstructions(value, registerToUse);
+		if (offset != 0) {
+			addError("Tried to get the value of an array with an offset from bp");
+		}
 	}
 	else {
 		writeLoadValueInstructions(value, registerToUse);
@@ -154,10 +157,13 @@ int Compiler::writeLoadAddressInstructions(SymbolInfo& info, int registerToUse) 
 		else if (info.accessType == QueSymbolAccessType::COMPILER_ACCESS) {
 			addError("Attempting to get address of compile-time only value");
 		}
-		else {
+		else if (info.accessType == QueSymbolAccessType::IMPORTED) {
 			// TODO handle imports
 			symbolStack.globalSymbols.addImportReferenceTextSeg(info.name, currentBinaryOffset + 4ULL);
 			writeInstruction(encodeInstruction(LA, true, registerToUse), true, 0);
+		}
+		else {
+			addError("Attempting to store invalid global symbol");
 		}
 	}
 	else {
