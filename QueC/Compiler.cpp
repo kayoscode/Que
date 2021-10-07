@@ -625,10 +625,6 @@ void Compiler::parseFunctionDefinition(int modifiers, SymbolInfo*& functionSymbo
 			functionSymbol->baseStackFrameSize = symbolStack.getCurrentBPOffset();
 
 			// First restore the stackpointer.
-			//if (symbolStack.getCurrentBPOffset() != 0) {
-				//writeInstruction(encodeInstruction(ADD, true, SP, SP, 0), true, symbolStack.getCurrentBPOffset());
-			//}
-			// Restore the previous stack pointer
 			writeInstruction(encodeInstruction(LW, false, SP, BP));
 
 			// pop bp
@@ -811,9 +807,27 @@ void Compiler::parseVariableDeclaration(int modifiers, SymbolInfo*& symbolInfo) 
 						SymbolInfo* assignment = new SymbolInfo(symbolStack.scopeIndex);
 						parseExpression(assignment);
 						writeAssignmentInstructions(*symbolInfo, *assignment);
+						symbolStack.freeIntRegister(*assignment, false);
 					} // Normal scoped local variable
-					// TODO: arrays
-				}
+					else if (symbolInfo->symbolType == QueSymbolType::ARRAY) {
+						if (currentToken.code == OPEN_BRK_CODE) {
+							collectNextToken();
+							SymbolInfo* variableSymbol = new SymbolInfo(symbolStack.scopeIndex);
+							parseArrayInitializer(symbolInfo, variableSymbol, 0, 0);
+							symbolStack.freeIntRegister(*variableSymbol, false);
+
+							if (currentToken.code != CLOSE_BRK_CODE) {
+								addError("Expected '}'");
+							}
+
+							collectNextToken();
+						}
+						else {
+							addError("Expected array initializer token: '{'");
+							collectNextToken();
+						}
+					}
+				} // Array
 			}
 
 			return;

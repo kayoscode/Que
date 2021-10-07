@@ -515,3 +515,79 @@ void SymbolStack::freeIntRegister(SymbolInfo& info, bool preserveValue) {
 	}
 }
 
+void Compiler::parseArrayInitializer(SymbolInfo*& symbolInfo, SymbolInfo*& variableSymbol, int previousOffset, int currentDim, bool fillZeros) {
+	if (currentDim >= (int)symbolInfo->dimensions.size()) {
+		addError("Too many initializer values for array");
+		return;
+	}
+
+	int initialBPOffset = symbolStack.calculateBPOffsetFromCurrentStackFrame(*symbolInfo);
+	int dimIndex = 0;
+	int maxDimSize = symbolInfo->dimensions[currentDim];
+	int currentByteOffset = 0;
+
+	while (!isEndOfStream() && !fillZeros) {
+		if (dimIndex >= maxDimSize) {
+			addError("Too many initializer values for the array");
+			return;
+		}
+
+		currentByteOffset = ((symbolInfo->totalDimensionSizes[currentDim] /
+			symbolInfo->dimensions[currentDim]) * dimIndex);
+		currentByteOffset *= symbolInfo->typeInfo.sizeInMemory();
+		currentByteOffset += previousOffset;
+
+		if (currentDim == symbolInfo->dimensions.size() - 1) {
+			dimIndex++;
+			parseExpression(variableSymbol);
+			int reg = symbolStack.allocateIntRegister(*variableSymbol, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+
+			// Parse the expression and write it to the array as a BP offset.
+			writeStoreValueInAddressInstructions(*variableSymbol, currentByteOffset + initialBPOffset, BP, reg);
+			symbolStack.freeIntRegister(*variableSymbol, false);
+		}
+		else if (currentToken.code == OPEN_BRK_CODE) {
+			dimIndex++;
+			collectNextToken();
+			parseArrayInitializer(symbolInfo, variableSymbol, currentByteOffset, currentDim + 1, false);
+
+			if (currentToken.code != CLOSE_BRK_CODE) {
+				addError("Expected '}'");
+			}
+
+			collectNextToken();
+		}
+		else {
+			addError("Expected '{'");
+			break;
+		}
+
+		if (currentToken.code != COMMA_CODE) {
+			break;
+		}
+
+		collectNextToken();
+	}
+
+	// Fill the rest with zeros
+	// R1 is reserved, and as long as we are not allocating new registers, it's completely fine to use
+	int reg = R1;
+	if (currentDim == symbolInfo->dimensions.size() - 1) {
+		writeInstruction(encodeInstruction(MOV, true, reg), true, 0);
+	}
+
+	for (int i = dimIndex; i < maxDimSize; i++) {
+		currentByteOffset = ((symbolInfo->totalDimensionSizes[currentDim] /
+			symbolInfo->dimensions[currentDim]) * i);
+		currentByteOffset *= symbolInfo->typeInfo.sizeInMemory();
+		currentByteOffset += previousOffset;
+
+		if (currentDim == symbolInfo->dimensions.size() - 1) {
+			// Parse the expression and write it to the array as a BP offset.
+			writeStoreValueInAddressInstructions(*variableSymbol, currentByteOffset + initialBPOffset, BP, reg);
+		}
+		else {
+			parseArrayInitializer(symbolInfo, variableSymbol, currentByteOffset, currentDim + 1, true);
+		}
+	}
+}

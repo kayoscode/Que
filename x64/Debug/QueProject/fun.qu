@@ -1,6 +1,44 @@
 export fn function: i32(string: i8*) {
-	var value: bool = false;
-	var value2: bool = true;
+	var variableBefore: i32 = 10;
+	var variableBefore2: i32[10];
 	
-	return value == false && (value == false || value != false);
+	{
+		var test: i32[3][3][3] = {
+			 {
+				{
+					1, 2, 3
+				},
+				{
+					4, 5, 6
+				},
+				{
+					7, 8, 9
+				}
+			 },
+			 {
+				{
+					10, 11, 12
+				},
+				{
+					13, 14, 15
+				},
+				{
+					16, 17, 18
+				}
+			 },
+			 {
+				{
+					19, 20, 21
+				},
+				{
+					22, 23, 24
+				},
+				{
+					25, 26, 27
+				}
+			 }
+		};
+		
+		return test[0][0][0] * variableBefore;
+	}
 }

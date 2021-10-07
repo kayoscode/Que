@@ -290,7 +290,7 @@ void Compiler::writeLoadValueOrAddressInstructions(SymbolInfo& value, int regist
 	if (value.symbolType == QueSymbolType::ARRAY || value.symbolType == QueSymbolType::FUNCTION) {
 		int offset = writeLoadAddressInstructions(value, registerToUse);
 		if (offset != 0) {
-			addError("Tried to get the value of an array with an offset from bp");
+			writeInstruction(encodeInstruction(ADD, true, registerToUse, BP), true, offset);
 		}
 	}
 	else {

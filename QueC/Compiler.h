@@ -127,6 +127,7 @@ protected:
 	int parseCodeSegment(SymbolInfo*& currentFunctions, int scopeLevel, int scopeReturnAddress);
 	void setupBlockStackframe(SymbolInfo*& currentFunction, int scopeLevel, int scopeReturnAddress, int subStackIndex);
 	void parseIfStatement(SymbolInfo*& currentFunctions, int scopelevel, int scopeReturnAddress, int& subStackIndex);
+	void parseArrayInitializer(SymbolInfo*& symbolInfo, SymbolInfo*& variableSymbol, int previousOffset, int currentDim, bool fillZeros = false);
 
 	/// <summary>
 	/// Writes an instruction to the output buffer, or increments the offset appropriately.
