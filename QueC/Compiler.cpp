@@ -336,25 +336,28 @@ void Compiler::parseFunctionCall(SymbolInfo*& functionSymbol, SymbolInfo*& ret) 
 	ret->isTemporaryValue = false;
 	ret->typeInfo = functionSymbol->typeInfo;
 	ret->fileName = functionSymbol->fileName;
-	// Calculate each argument 
-	int argIdx = 0;
 
 	// Push all active registers to the stacc.
 	for (int i = 0; i < symbolStack.registerInUse.size(); i++) {
 		writeInstruction(encodeInstruction(PUSHW, false, symbolStack.registerInUse[i]));
-	}
+	}	
+	
+	// Preserve the compiler state of the registers because messing with args will push vars in and out of registers.
+	std::map<std::string, Register> previousRegAllocStack = symbolStack.registerAllocationStack;
+	std::vector<Register> previousRegisterInUse = symbolStack.registerInUse;
+	std::stack<Register> previousAvailableRegisters = symbolStack.availableRegisters;
+
+	// Now we basically have a completely free register state, let's take each variable and
+	// put them in a register, then push them in the opposite order.
+	std::vector<SymbolInfo*> args;
 
 	// Set the base ptr offset to point to the things right before ra, sp, bp
 	while (currentToken.code != CLOSE_PARN_CODE) {
 		SymbolInfo* exprSymbol = new SymbolInfo(symbolStack.scopeIndex);
-
 		parseExpression(exprSymbol);
+		args.push_back(exprSymbol);
 
 		int reg = symbolStack.allocateIntRegister(*exprSymbol, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
-		// For now, each and every operand is 4 bytes, so this doesn't have to be that complex.
-		writeInstruction(encodeInstruction(PUSHW, false, reg));
-		symbolStack.freeIntRegister(*exprSymbol, false);
-		argIdx++;
 
 		if (currentToken.code != COMMA_CODE) {
 			break;
@@ -368,9 +371,36 @@ void Compiler::parseFunctionCall(SymbolInfo*& functionSymbol, SymbolInfo*& ret) 
 		collectNextToken();
 	}
 	else {
-		addError("Invalid parameters for function call");
+		addError("Expected ')'");
 		collectNextToken();
 	}
+
+	// Basic argument count semantic checking, Idc about the type at this point.
+	if (args.size() > functionSymbol->fnArgs.size()) {
+		addError("Too many arguments for: " + functionSymbol->fileName);
+	}
+	else if (args.size() < functionSymbol->fnArgs.size()) {
+		addError("Too few arguments for: " + functionSymbol->fileName);
+	}
+
+	// Push each argument to stacc.
+	// If we accidentally push things the funciton needs out of the register state, oh well :shrug:
+	for (int i = args.size() - 1; i >= 0; i--) {
+		// Unless there are a lot of args, most of these should already be in registers.
+		int reg = symbolStack.allocateIntRegister(*args[i], RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+		// For now, each and every operand is 4 bytes, so this doesn't have to be that complex.
+		writeInstruction(encodeInstruction(PUSHW, false, reg));
+		symbolStack.freeIntRegister(*args[i], false);
+	}
+
+	// Now that all the args have been pushed, let's restore the compiler register state.
+	symbolStack.registerAllocationStack = previousRegAllocStack;
+	symbolStack.registerInUse = previousRegisterInUse;
+	symbolStack.availableRegisters = previousAvailableRegisters;
+	//									!!!!ATTENTION!!!!
+	// --- THE REGISTER STATE SHOULD **ABSOLUTELY** NOT BE MODIFIED TILL THE ARGS ARE POPPED OFF.
+	// --- IF YOU'RE MODIFYING THE STATE BEFORE THEN, YOU ARE INTRODUCING AN EXTREMELY HARD TO FIND BUG.
+	//									!!!!ATTENTION!!!!
 
 	if (functionSymbol->accessType == QueSymbolAccessType::IMPORTED) {
 		// TODO: handle imported
@@ -380,8 +410,8 @@ void Compiler::parseFunctionCall(SymbolInfo*& functionSymbol, SymbolInfo*& ret) 
 			functionSymbol->value - (currentBinaryOffset + 4ULL));
 
 		// Restore the stacc after pushing args
-		if (argIdx != 0) {
-			writeInstruction(encodeInstruction(ADD, true, SP, SP), true, argIdx * 4);
+		if (args.size() != 0) {
+			writeInstruction(encodeInstruction(ADD, true, SP, SP), true, args.size() * 4);
 		}
 
 		// Pop off allocated registers to restore their state.
@@ -490,7 +520,6 @@ void Compiler::parseFunctionDefinition(int modifiers, SymbolInfo*& functionSymbo
 	// The first expectation is an open parentheses in which the arguments will be enumerated.
 	bool success = false;
 	symbolStack.pushScope();
-	std::vector<SymbolInfo*> arguments;
 
 	// addRet is set to false if and only if we are in an entrypoint. Ret is replaced with a program halt swi
 	bool addRet = true;
@@ -510,7 +539,23 @@ void Compiler::parseFunctionDefinition(int modifiers, SymbolInfo*& functionSymbo
 		addRet = false;
 	}
 
-	if (currentToken.code == OPEN_PARN_CODE) {
+	if (currentToken.code == IDENTIFIER_CODE) {
+		// Have to do something weird to make sure this function get's written to the previous scope.
+		// Go back down to the previous scope, parse the var declaration, then
+		// return back to this scope.
+
+		symbolStack.enterPreviousScope();
+		parseVariableDeclaration(modifiers, functionSymbol);
+		symbolStack.enterCurrentScope();
+		success = true;
+	}
+	else {
+		success = false;
+		addError("Expected identifier for function name");
+		collectNextToken();
+	}
+
+	if (success && currentToken.code == OPEN_PARN_CODE) {
 		collectNextToken();
 
 		// Collect arguments from set.
@@ -524,9 +569,10 @@ void Compiler::parseFunctionDefinition(int modifiers, SymbolInfo*& functionSymbo
 
 				nextArgument = new SymbolInfo(symbolStack.scopeIndex);
 				nextArgument->symbolType = QueSymbolType::DATA;
-				arguments.push_back(nextArgument);
+				functionSymbol->fnArgs.push_back(nextArgument);
 
-				parseVariableDeclaration(argModifiers, arguments[arguments.size() - 1]);
+				parseVariableDeclaration(argModifiers, 
+					functionSymbol->fnArgs[functionSymbol->fnArgs.size() - 1]);
 				nextArgument->value = -(ARG_STACK_BP_OFFSET_START + (4 * argIndex));
 				argIndex++;
 			}
@@ -552,82 +598,65 @@ void Compiler::parseFunctionDefinition(int modifiers, SymbolInfo*& functionSymbo
 		collectNextToken();
 	}
 
-	// Parse remainder of function.
-	// Should be the same syntax as a normal variable declaration
 	if (success) {
-		if (currentToken.code == IDENTIFIER_CODE) {
-			// Have to do something weird to make sure this function get's written to the previous scope.
-			// Go back down to the previous scope, parse the var declaration, then
-			// return back to this scope.
+		// ... parse code block
+		if (currentToken.code == OPEN_BRK_CODE) {
+			collectNextToken();
+			symbolStack.pushScope();
+			symbolStack.setFrameSize(functionSymbol->baseStackFrameSize);
+			// Setup stack frame
+			// We know the stack is already aligned because that's the caller's job
+			// PUSH bp
+			// mov bp, sp
+			// push ra
 
-			symbolStack.enterPreviousScope();
-			parseVariableDeclaration(modifiers, functionSymbol, &arguments);
-			symbolStack.enterCurrentScope();
+			writeInstruction(encodeInstruction(PUSHW, false, RA));
+			writeInstruction(encodeInstruction(PUSHW, false, BP));
+			writeInstruction(encodeInstruction(PUSHW, false, SP));
+			writeInstruction(encodeInstruction(MOV, false, BP, SP));
 
-			// ... parse code block
-			if (currentToken.code == OPEN_BRK_CODE) {
-				collectNextToken();
-				symbolStack.pushScope();
-				symbolStack.setFrameSize(functionSymbol->baseStackFrameSize);
-				// Setup stack frame
-				// We know the stack is already aligned because that's the caller's job
-				// PUSH bp
-				// mov bp, sp
-				// push ra
+			// Subtract stack space for the variables
+			writeInstruction(encodeInstruction(SUB, true, SP, SP), true, functionSymbol->baseStackFrameSize);
 
-				writeInstruction(encodeInstruction(PUSHW, false, RA));
-				writeInstruction(encodeInstruction(PUSHW, false, BP));
-				writeInstruction(encodeInstruction(PUSHW, false, SP));
-				writeInstruction(encodeInstruction(MOV, false, BP, SP));
+			// Function return address stores the place to jump to when return is called.
+			parseCodeSegment(functionSymbol, 0, functionSymbol->functionReturnPointer);
 
-				// Subtract stack space for the variables
-				writeInstruction(encodeInstruction(SUB, true, SP, SP), true, functionSymbol->baseStackFrameSize);
+			functionSymbol->functionReturnPointer = currentBinaryOffset;
+			functionSymbol->baseStackFrameSize = symbolStack.getCurrentBPOffset();
 
-				// Function return address stores the place to jump to when return is called.
-				parseCodeSegment(functionSymbol, 0, functionSymbol->functionReturnPointer);
+			// First restore the stackpointer.
+			//if (symbolStack.getCurrentBPOffset() != 0) {
+				//writeInstruction(encodeInstruction(ADD, true, SP, SP, 0), true, symbolStack.getCurrentBPOffset());
+			//}
+			// Restore the previous stack pointer
+			writeInstruction(encodeInstruction(LW, false, SP, BP));
 
-				functionSymbol->functionReturnPointer = currentBinaryOffset;
-				functionSymbol->baseStackFrameSize = symbolStack.getCurrentBPOffset();
+			// pop bp
+			// mov sp, bp
+			writeInstruction(encodeInstruction(POPW, false, BP));
+			writeInstruction(encodeInstruction(POPW, false, RA));
 
-				// First restore the stackpointer.
-				//if (symbolStack.getCurrentBPOffset() != 0) {
-					//writeInstruction(encodeInstruction(ADD, true, SP, SP, 0), true, symbolStack.getCurrentBPOffset());
-				//}
-				// Restore the previous stack pointer
-				writeInstruction(encodeInstruction(LW, false, SP, BP));
+			symbolStack.popScope();
 
-				// pop bp
-				// mov sp, bp
-				writeInstruction(encodeInstruction(POPW, false, BP));
-				writeInstruction(encodeInstruction(POPW, false, RA));
-
-				symbolStack.popScope();
-
-				// ret = jmp ra
-				if (addRet) {
-					writeInstruction(encodeInstruction(JMP, false, RA));
-				}
-				else {
-					// Or terminate the program if that's what we have to do
-					writeInstruction(encodeInstruction(SWI, true, 0), true, 0x0);
-				}
-				functionSymbol->defined = true;
-				// The caller must remove the parameters from stack. I ain't doin it here.
+			// ret = jmp ra
+			if (addRet) {
+				writeInstruction(encodeInstruction(JMP, false, RA));
 			}
 			else {
-				// We're just a function declaration, move along.
-				if (modifiers & EXTERN_FLAG) {
-					functionSymbol->defined = false;
-				}
-				else {
-					addError("Declaration not legal on non-extern function");
-				}
+				// Or terminate the program if that's what we have to do
+				writeInstruction(encodeInstruction(SWI, true, 0), true, 0x0);
 			}
+			functionSymbol->defined = true;
+			// The caller must remove the parameters from stack. I ain't doin it here.
 		}
 		else {
-			success = false;
-			addError("Expected identifier for function name");
-			collectNextToken();
+			// We're just a function declaration, move along.
+			if (modifiers & EXTERN_FLAG) {
+				functionSymbol->defined = false;
+			}
+			else {
+				addError("Declaration not legal on non-extern function");
+			}
 		}
 	}
 
@@ -693,7 +722,7 @@ void Compiler::parseConst(SymbolInfo*& symbolInfo, bool allowRefs) {
 // A variable declaration consists of a name, followed by a colon
 // then a type value and an optional equals
 // Function is responsible for getting the variable name and typecode
-void Compiler::parseVariableDeclaration(int modifiers, SymbolInfo*& symbolInfo, std::vector<SymbolInfo*>* args) {
+void Compiler::parseVariableDeclaration(int modifiers, SymbolInfo*& symbolInfo) {
 	if (currentToken.code == IDENTIFIER_CODE) {
 		symbolInfo->name = currentToken.lexeme;
 		symbolInfo->fileName = currentToken.lexeme;
@@ -731,10 +760,6 @@ void Compiler::parseVariableDeclaration(int modifiers, SymbolInfo*& symbolInfo, 
 			}
 			else {
 				return;
-			}
-
-			if (args != nullptr) {
-				symbolInfo->fnArgs = *args;
 			}
 
 			// Allocate space for variable, whether we are in the data segment, args, or local variables,
@@ -1081,11 +1106,11 @@ void Compiler::parseLogicalOp(Operator& op) {
 }
 
 bool Compiler::isAddop() {
-	if (currentToken.code == PLUS_CODE || 
+	if (currentToken.code == PLUS_CODE ||
 		currentToken.code == MINUS_CODE ||
 		currentToken.code == AND_CODE ||
 		currentToken.code == OR_CODE
-	) {
+		) {
 	}
 	else {
 		return false;

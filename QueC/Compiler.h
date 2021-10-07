@@ -105,7 +105,7 @@ protected:
 	/// Stores it on the current scope.
 	/// </summary>
 	/// <returns></returns>
-	void parseVariableDeclaration(int modifiers, SymbolInfo*& symbolInfo, std::vector<SymbolInfo*>* args = nullptr);
+	void parseVariableDeclaration(int modifiers, SymbolInfo*& symbolInfo);
 
 	/// <summary>
 	/// Parses a function definition and leaves the state right before the code block.

@@ -1,4 +1,6 @@
-export fn(string: i8*)function : i32
-{
+export fn function: i32(string: i8*) {
+	var value: bool = false;
+	var value2: bool = true;
 	
+	return value == false && (value == false || value != false);
 }
