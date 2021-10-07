@@ -37,6 +37,11 @@ struct SymbolInfo {
 		}
 	}
 
+	SymbolInfo(int stackFrameIndex) 
+		:stackFrameIndex(stackFrameIndex)
+	{
+	}
+
 	QueSymbolAccessType accessType = QueSymbolAccessType::UNDEFINED;
 	QueSymbolType symbolType = QueSymbolType::UNDEFINED;
 	TypeInfo typeInfo;
@@ -46,6 +51,11 @@ struct SymbolInfo {
 	bool isTemporaryValue = false;
 	int stackFrameIndex = 0;
 	std::string name;
+
+	// Temporary symbols have a different name, but sometimes the name
+	// of their derivative symbols needs to be referenced. This refers to the name of the
+	// actual symbol in the file.
+	std::string fileName;
 
 	// For array types, they have n dimensions, and n sizes per dimension
 	std::vector<int> dimensions;
@@ -351,20 +361,20 @@ public:
 	/// Pushes a new scope.
 	/// </summary>
 	void pushScope() {
+		// If we are starting a new function stack, create a new register 
+		// allocation frame.
+		if (scopeIndex == 0) {
+			// R0 is reserved for the return address.
+			// R1 is reserved for storing the address to store globals after free.
+
+			for (int i = R15; i >= USABLE_REGISTER_START; i--) {
+				availableRegisters.push((Register)i);
+			}
+		}
+
 		scopeIndex++;
 		if (scopeIndex >= localScope.size()) {
 			localScope.push_back(new LocalSymbolTable());
-		}
-
-		registerAllocationStack.push_back(std::map<std::string, Register>());
-		registerInUse.push_back(std::vector<Register>());
-		availableRegisters.push_back(std::stack<int>());
-
-		// R0 is reserved for the return address.
-		// R1 is reserved for storing the address to store globals after free.
-
-		for (int i = R15; i >= USABLE_REGISTER_START; i--) {
-			availableRegisters[scopeIndex].push(i);
 		}
 	}
 
@@ -372,12 +382,18 @@ public:
 	/// Removes the previous scope from the list. Will not remove the global stack.
 	/// </summary>
 	bool popScope() {
+		// If we go back to the zero's scope, we have to reset the register
+		// allocation stack because each function assumes a blank register state.
+		if (scopeIndex == 0) {
+			assert(registerInUse.size() == 0);
+
+			registerAllocationStack.clear();
+			availableRegisters = std::stack<Register>();
+			registerInUse.clear();
+		}
+
 		if (scopeIndex >= 0) {
-			assert(registerInUse[scopeIndex].size() == 0);
 			localScope[scopeIndex]->clear();
-			registerAllocationStack.pop_back();
-			registerInUse.pop_back();
-			availableRegisters.pop_back();
 			scopeIndex--;
 		}
 		else {
@@ -417,16 +433,14 @@ public:
 
 	void pushVariable(SymbolInfo& info);
 
-	// Push all currently used variables to stack, push the args, jump to address
-	void functionCall();
-
 	// Should be called right before a register is used.
 	int allocateIntRegister(SymbolInfo& variable, RegisterAllocMode loadMode);
 	void freeIntRegister(SymbolInfo& registerToFree, bool preserveValue);
-	std::vector<std::map<std::string, Register>> registerAllocationStack;
-	// A list of currently used registers
-	std::vector<std::vector<Register>> registerInUse;
-	std::vector<std::stack<int>> availableRegisters;
+
+	// Information used for register allocation.
+	std::map<std::string, Register> registerAllocationStack;
+	std::vector<Register> registerInUse;
+	std::stack<Register> availableRegisters;
 
 	int saveScopeIndex = -1;
 	std::vector<LocalSymbolTable*> localScope;

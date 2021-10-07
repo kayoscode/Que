@@ -46,6 +46,17 @@ constexpr int LTE_CODE = 126;
 constexpr int ARE_EQUAL_CODE = 127;
 constexpr int NE_CODE = 128;
 
+// Logical ops
+constexpr int AND_AND_CODE = 129;
+constexpr int OR_OR_CODE = 130;
+constexpr int NOT_CODE = 131;
+
+constexpr int AND_CODE = 132;
+constexpr int OR_CODE = 133;
+constexpr int LSL_CODE = 134;
+constexpr int LSR_CODE = 135;
+constexpr int XOR_CODE = 136;
+
 #define MAX_CONSTANT_VALUE_SIZE 8
 
 /// <summary>
@@ -113,6 +124,8 @@ protected:
 	/// The return indicates the number of stack frames to jump out of.
 	/// </summary>
 	int parseCodeSegment(SymbolInfo*& currentFunctions, int scopeLevel, int scopeReturnAddress);
+	void setupBlockStackframe(SymbolInfo*& currentFunction, int scopeLevel, int scopeReturnAddress, int subStackIndex);
+	void parseIfStatement(SymbolInfo*& currentFunctions, int scopelevel, int scopeReturnAddress, int& subStackIndex);
 
 	/// <summary>
 	/// Writes an instruction to the output buffer, or increments the offset appropriately.
@@ -136,6 +149,13 @@ protected:
 			if (immediateFlag) {
 				currentBinaryOffset += sizeof(uint32_t);
 			}
+		}
+	}
+
+virtual void fillInMissingImmediate(int valueAddress, int value) {
+		if (pass > 1 && !errorsFound) {
+			uint32_t* instructions = (uint32_t*)output;
+			instructions[valueAddress / sizeof(uint32_t)] = value;
 		}
 	}
 
@@ -183,6 +203,7 @@ protected:
 	void parseMulOp(Operator& op);
 	void parseAddOp(Operator& op);
 	void parseCompareOp(Operator& op);
+	void parsePostFixOp(Operator& op);
 	void parseConst(SymbolInfo*& value, bool allowRefs);
 	bool parseConstantRef(ConstantValue& value, SymbolInfo& symbolInfo, bool allowRefs);
 	void parseConstantArrayInitializer(SymbolInfo& symbolInfo, int previousOffset, int currentDim);
@@ -190,6 +211,7 @@ protected:
 	bool isMulop();
 	bool isAddop();
 	bool isCompareOp();
+	bool isPostFix();
 
 	/// <summary>
 	/// Parses a simple expression and writes the necessary instructions
@@ -198,6 +220,7 @@ protected:
 	/// <param name="info"></param>
 	void parseExpression(SymbolInfo*& info);
 	void parseTerm(SymbolInfo*& info);
+	void parsePostFix(SymbolInfo*& info);
 	void parseFactor(SymbolInfo*& info);
 	bool getValueFromToken(SymbolInfo*& info);
 	void parseRef(SymbolInfo& info);
@@ -205,6 +228,8 @@ protected:
 	void parseDeref(SymbolInfo*& info);
 	void getAddressOfSymbol(const std::string& idtName, SymbolInfo& info);
 	void parseIdentifierValue(SymbolInfo*& info);
+	void parseArrayIndexer(SymbolInfo*& info);
+	void parseFunctionCall(SymbolInfo*& functionSymbol, SymbolInfo*& ret);
 
 	/// <summary>
 	/// Returns whether it successfully pulled a constant
@@ -234,7 +259,7 @@ protected:
 			if (isAlpha(buffer[bufferIndex])) {
 				readIdentifierOrKeyword();
 			}
-			else if (isNum(buffer[bufferIndex])) {
+			else if (isNum(buffer[bufferIndex]) || (buffer[bufferIndex] == '-' && isNum(buffer[bufferIndex + 1]))) {
 				readNumber();
 			}
 			else if (buffer[bufferIndex] == '"') {
@@ -329,7 +354,8 @@ protected:
 
 	void writeOperatorInstructions(SymbolInfo& left, SymbolInfo& right, Operator op);
 	void writeCompareOperatorInstructions(SymbolInfo& left, SymbolInfo& right, Operator op);
-	void writeAssignment(SymbolInfo& left, SymbolInfo& right);
+	void writeAssignmentInstructions(SymbolInfo& left, SymbolInfo& right);
+	void writePtrIndexInstructions(SymbolInfo& left, SymbolInfo& right);
 
 protected:
 	SymbolStack symbolStack;

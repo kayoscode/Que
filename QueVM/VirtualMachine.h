@@ -387,4 +387,5 @@ private:
 	friend void SWI_0x03_PRINT_CHAR(VirtualMachine& cpu) noexcept;
 	friend void SWI_0x04_PRINT_FLOAT(VirtualMachine& cpu) noexcept;
 	friend void SWI_0x05_PRINT_STRING(VirtualMachine& cpu) noexcept;
+	friend void SWI_0x06_READ_STRING(VirtualMachine& cpu) noexcept;
 };

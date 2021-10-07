@@ -1707,7 +1707,7 @@ void VirtualMachine::executeProgram(int stackPtr) {
 		count += 1;
 	}
 
-	//logger.trace("{long} instructions executed in [tl] milliseconds", count);
+	logger.trace("{long} instructions executed in [tl] milliseconds", count);
 }
 
 void VirtualMachine::executeNextInstruction() {

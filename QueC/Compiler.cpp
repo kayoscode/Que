@@ -1,7 +1,7 @@
-#define _CRT_SECURE_NO_WARNINGS
-
 #include "Compiler.h"
 #include "../QueASM/Assembler.h"
+
+#define ARG_STACK_BP_OFFSET_START 12
 
 uint32_t encodeInstruction(uint8_t opcode, bool immediateFlag, uint8_t op1, uint8_t op2, uint8_t op3) {
 	uint32_t finalInstruction = opcode;
@@ -33,6 +33,8 @@ Compiler::Compiler()
 	reserveTable.addReserveWord("deref", currentCode++);
 	reserveTable.addReserveWord("return", currentCode++);
 	reserveTable.addReserveWord("sizeof", currentCode++);
+	reserveTable.addReserveWord("if", currentCode++);
+	reserveTable.addReserveWord("else", currentCode++);
 	// entrypt is an attribute which can be attached to a function. Only one may be defined per assembly.
 	// Indicates where the program should start in the bin.
 
@@ -53,179 +55,13 @@ Compiler::Compiler()
 	reserveTable.addReserveWord("fn", currentCode++);
 }
 
-Compiler::~Compiler()
-{
-}
-
-bool Compiler::compileFile(const std::string& fileName, std::ostream& outputStream) {
-	logger.setColorDisabled();
-	logger.setPrefix("");
-	// Collect the file size.
-	FILE* file = fopen(fileName.c_str(), "rb");
-
-	if (file != NULL) {
-		fseek(file, 0L, SEEK_END);
-		size_t fileSize = ftell(file);
-		fseek(file, 0L, SEEK_SET);
-
-		// Load the file from disk
-		buffer = new char[fileSize + 1];
-		fread(buffer, sizeof(char), fileSize, file);
-		fclose(file);
-		buffer[fileSize] = 0;
-		bufferSize = (int)fileSize;
-		currentLineNumber = 0;
-		entryPoint = -1;
-
-		currentBinaryOffset = 0;
-		errorsFound = false;
-		pass = 0;
-
-		collectNextToken();
-		parseFile();
-
-		currentBinaryOffset = 0;
-		currentLineNumber = 0;
-		bufferIndex = 0;
-		endOfParse = false;
-
-		// If this happens, theres a bug.
-		if (!symbolStack.atGlobalScope()) {
-			addError("It appears a stack frame was not closed. This is a bug in the compiler.");
-			errorsFound = true;
-		}
-
-		if (!errorsFound) {
-			collectNextToken();
-			pass = 1;
-			parseFile();
-
-			int outputBufferSize = currentBinaryOffset;
-			currentBinaryOffset = 0;
-			currentLineNumber = 0;
-			bufferIndex = 0;
-			endOfParse = false;
-			pass = 2;
-
-			if (!errorsFound) {
-				collectNextToken();
-				output = new char[outputBufferSize];
-				parseFile();
-
-				if (!errorsFound) {
-					// WriteOBJ header
-					writeOBJHeader(outputStream);
-					// Write bin to the file.
-					outputStream.write((char*)&outputBufferSize, sizeof(uint32_t));
-					outputStream.write(output, outputBufferSize);
-				}
-
-				delete[] output;
-			}
-		}
-
-		delete[] buffer;
-	}
-	else {
-		logger.error("File could not be loaded from disk.");
-		errorsFound = true;
-	}
-
-	return !errorsFound;
-}
-
-void Compiler::writeOBJHeader(std::ostream& output) {
-	// The header should include the following information in this order:
-	// if entry_point is specified 9 bytes for "########\0", 4 bytes offset
-	// 4 bytes # of exported labels
-	// List of exported labels and their respective positions in the file in this format
-	//	"label_name\0", 4 bytes offset
-	// 4 bytes # of imported labels
-	// List of imported symbols followed by a list of locations where the byte should
-	// Be substituted by the linker in this format:
-	//	"label_name\0", 4 bytes number of subs, n bytes sub locations
-
-	// Write the entry point to the file if it's specified.
-	if (entryPoint != -1) {
-		char booleanTrue = 1;
-		output.write((char*)&booleanTrue, 1);
-		output.write((char*)&entryPoint, sizeof(uint32_t));
-	}
-	else {
-		char booleanFalse = 0;
-		output.write((char*)&booleanFalse, 1);
-	}
-
-	// Write exported symbols to file.
-	output.write((char*)&symbolStack.globalSymbols.exportedSymbolCount, sizeof(uint32_t));
-
-	for (std::map<std::string, SymbolInfo*>::iterator i = symbolStack.globalSymbols.symbolInfo.begin(); 
-		i != symbolStack.globalSymbols.symbolInfo.end(); ++i) {
-		if (i->second->accessType == QueSymbolAccessType::EXPORTED) {
-			output.write(i->first.c_str(), i->first.size() + 1);
-			int value = i->second->value;
-			output.write((char*)&value, sizeof(uint32_t));
-		}
-	}
-
-	// Write imported symbols to file for the text segment.
-	uint32_t textSegmentSymbolCount = symbolStack.globalSymbols.symbolImportReferencesTextSeg.size();
-	output.write((char*)&textSegmentSymbolCount, sizeof(uint32_t));
-	for (std::map<std::string, std::vector<int>>::iterator i = 
-		symbolStack.globalSymbols.symbolImportReferencesTextSeg.begin(); 
-		i != symbolStack.globalSymbols.symbolImportReferencesTextSeg.end(); ++i) 
-	{
-		std::vector<int>& references = i->second;
-		int referenceCount = references.size();
-
-		output.write(i->first.c_str(), i->first.size() + 1);
-
-		// Write N occurrences
-		output.write((char*)&referenceCount, sizeof(uint32_t));
-
-		// Write offset to each occurence
-		for (int i = 0; i < references.size(); i++) {
-			output.write((char*)&references[i], sizeof(uint32_t));
-		}
-	}
-
-	uint32_t dataSegmentSymbolCount = symbolStack.globalSymbols.symbolImportReferencesDataSeg.size();
-	output.write((char*)&dataSegmentSymbolCount, sizeof(uint32_t));
-	// Write the imported symbols for the data segment. (zeros will be fine because the correct value will be a direct substituation)
-	for (std::map<std::string, std::vector<int>>::iterator i = 
-		symbolStack.globalSymbols.symbolImportReferencesDataSeg.begin(); 
-		i != symbolStack.globalSymbols.symbolImportReferencesDataSeg.end(); ++i) 
-	{
-		std::vector<int>& references = i->second;
-		int referenceCount = references.size();
-
-		output.write(i->first.c_str(), i->first.size() + 1);
-
-		// Write N occurrences
-		output.write((char*)&referenceCount, sizeof(uint32_t));
-
-		// Write offset to each occurence
-		for (int i = 0; i < references.size(); i++) {
-			output.write((char*)&references[i], sizeof(uint32_t));
-		}
-	}
-
-	// Write global offset table.
-	uint32_t gotSize = symbolStack.globalSymbols.globalOffsetTable.size();
-	output.write((char*)&gotSize, sizeof(uint32_t));
-	// Write each occurrence to the file.
-	for (int i = 0; i < gotSize; i++) {
-		int location = symbolStack.globalSymbols.globalOffsetTable[i];
-		output.write((char*)&location, sizeof(uint32_t));
-	}
-}
-
 /// <summary>
 /// At the file level, there can be the following in any order and in any quantity:
 /// function defintion.
 /// variable declaration.
 /// </summary>
 void Compiler::parseFile() {
+	symbolStack.temporaryVariableIdx = 0;
 	while (!isEndOfStream()) {
 		bool needsSemi = true;
 		int modifiers = 0;
@@ -246,7 +82,7 @@ void Compiler::parseFile() {
 			collectNextToken();
 			if (currentToken.code == reserveTable.getReserveCode("fn")) {
 				collectNextToken();
-				SymbolInfo* info = new SymbolInfo();
+				SymbolInfo* info = new SymbolInfo(symbolStack.scopeIndex);
 				info->symbolType = QueSymbolType::FUNCTION;
 				parseFunctionDefinition(modifiers, info);
 				if (info->dimensions.size() != 0) {
@@ -266,7 +102,7 @@ void Compiler::parseFile() {
 			}
 
 			collectNextToken();
-			SymbolInfo* info = new SymbolInfo();
+			SymbolInfo* info = new SymbolInfo(symbolStack.scopeIndex);
 			info->symbolType = QueSymbolType::CONST_EXPR;
 			parseConst(info, false);
 
@@ -276,13 +112,13 @@ void Compiler::parseFile() {
 		}
 		else if (currentToken.code == reserveTable.getReserveCode("var")) {
 			collectNextToken();
-			SymbolInfo* info = new SymbolInfo();
+			SymbolInfo* info = new SymbolInfo(symbolStack.scopeIndex);
 			info->symbolType = QueSymbolType::DATA;
 			parseVariableDeclaration(modifiers, info);
 		}
 		else if (currentToken.code == reserveTable.getReserveCode("fn")) {
 			collectNextToken();
-			SymbolInfo* info = new SymbolInfo();
+			SymbolInfo* info = new SymbolInfo(symbolStack.scopeIndex);
 			info->symbolType = QueSymbolType::FUNCTION;
 			parseFunctionDefinition(modifiers, info);
 
@@ -337,7 +173,7 @@ bool Compiler::getTypeFromToken(SymbolInfo& typeInfo) {
 			collectNextToken();
 			ConstantValue size;
 			// Each dimension of the array should be written to the binary.
-			SymbolInfo* symbol = new SymbolInfo();
+			SymbolInfo* symbol = new SymbolInfo(symbolStack.scopeIndex);
 			symbol->typeInfo.baseSize = 4;
 			symbol->typeInfo.ptrCount = 0;
 			symbol->typeInfo.typeCode = TypeCode::TYPE_INT32_CODE;
@@ -384,15 +220,19 @@ int Compiler::parseCodeSegment(SymbolInfo*& currentFunction, int scopeLevel, int
 		currentFunction->functionStackFrameSizes.push_back(std::vector<int>());
 	}
 	int subStackCount = 0;
-	int popStackFrames = -1;
 
 	while (!isEndOfStream()) {
 		bool needsSemi = true;
 		if (currentToken.code == reserveTable.getReserveCode("var")) {
 			collectNextToken();
-			SymbolInfo* info = new SymbolInfo();
+			SymbolInfo* info = new SymbolInfo(symbolStack.scopeIndex);
 			info->symbolType = QueSymbolType::DATA;
 			parseVariableDeclaration(LOCAL_VAR_FLAG, info);
+		}
+		else if (currentToken.code == reserveTable.getReserveCode("if")) {
+			collectNextToken();
+			parseIfStatement(currentFunction, scopeLevel, scopeReturnAddress, subStackCount);
+			needsSemi = false;
 		}
 		else if (currentToken.code == reserveTable.getReserveCode("return")) {
 			collectNextToken();
@@ -400,7 +240,7 @@ int Compiler::parseCodeSegment(SymbolInfo*& currentFunction, int scopeLevel, int
 			if (currentToken.code == SEMICOLON_CODE) {
 			}
 			else {
-				SymbolInfo* info = new SymbolInfo();
+				SymbolInfo* info = new SymbolInfo(symbolStack.scopeIndex);
 				parseExpression(info);
 				int reg = 0;
 				int valueReg = symbolStack.allocateIntRegister(*info, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
@@ -409,9 +249,7 @@ int Compiler::parseCodeSegment(SymbolInfo*& currentFunction, int scopeLevel, int
 			}
 
 			writeInstruction(encodeInstruction(JMP, true), true,
-				scopeReturnAddress - (currentBinaryOffset + 4ULL));
-
-			popStackFrames = scopeLevel - 1;
+				currentFunction->functionReturnPointer - (currentBinaryOffset + 4ULL));
 		}
 		else if (currentToken.code == IDENTIFIER_CODE) {
 			// It could either be an assignment or a function call
@@ -427,61 +265,27 @@ int Compiler::parseCodeSegment(SymbolInfo*& currentFunction, int scopeLevel, int
 			collectNextToken();
 
 			if (currentToken.code == OPEN_PARN_CODE) {
+				collectNextToken();
+				if (value->symbolType != QueSymbolType::FUNCTION) {
+					addError(value->fileName + " is not a function");
+					continue;
+				}
 				// Parse a function call
+				SymbolInfo* fnRet = new SymbolInfo(symbolStack.scopeIndex);
+				parseFunctionCall(value, fnRet);
+				symbolStack.freeIntRegister(*fnRet, false);
 			}
 			else if (currentToken.code == EQUALS_CODE) {
 				// Parse variable assignment
 				collectNextToken();
-				SymbolInfo* info = new SymbolInfo();
+				SymbolInfo* info = new SymbolInfo(symbolStack.scopeIndex);
 				parseExpression(info);
-				writeAssignment(*value, *info);
+				writeAssignmentInstructions(*value, *info);
 			}
 		}
 		else if (currentToken.code == OPEN_BRK_CODE) {
-			int addr = 0;
-			int stackFrameSize = 0;
-			if (pass != 0) {
-				addr = currentFunction->functionReturnPointers[scopeLevel][subStackCount];
-				stackFrameSize = currentFunction->functionStackFrameSizes[scopeLevel][subStackCount];
-			}
-
-			// Make space for the variables
-			writeInstruction(encodeInstruction(SUB, true, SP, SP, 0), true, stackFrameSize);
-
-			collectNextToken();
-			symbolStack.pushScope();
-			symbolStack.setFrameSize(stackFrameSize);
-			int retPopStk = parseCodeSegment(currentFunction, scopeLevel + 1, addr);
-
-			// Normal stack frame exit: fix SP, jump past the stack frame terminator
-
-			if (pass == 0) {
-				currentFunction->functionReturnPointers[scopeLevel].push_back(currentBinaryOffset);
-				currentFunction->functionStackFrameSizes[scopeLevel].push_back(symbolStack.getCurrentBPOffset());
-			}
-			else {
-				currentFunction->functionReturnPointers[scopeLevel][subStackCount] = currentBinaryOffset;
-				currentFunction->functionStackFrameSizes[scopeLevel][subStackCount] = symbolStack.getCurrentBPOffset();
-			}
-
+			setupBlockStackframe(currentFunction, scopeLevel, scopeReturnAddress, subStackCount);
 			subStackCount++;
-
-			// First restore the stackpointer.
-			if (symbolStack.getCurrentBPOffset() != 0) {
-				writeInstruction(encodeInstruction(ADD, true, SP, SP, 0), true, symbolStack.getCurrentBPOffset());
-			}
-			symbolStack.popScope();
-
-			if (retPopStk >= 0) {
-				writeInstruction(encodeInstruction(JMP, true), true,
-					scopeReturnAddress - (currentBinaryOffset + 4ULL));
-			}
-
-			retPopStk -= 1;
-			if (retPopStk > popStackFrames) {
-				popStackFrames = retPopStk;
-			}
-
 			needsSemi = false;
 		}
 		else if (currentToken.code == CLOSE_BRK_CODE) {
@@ -490,6 +294,7 @@ int Compiler::parseCodeSegment(SymbolInfo*& currentFunction, int scopeLevel, int
 		}
 		else if (currentToken.code == SEMICOLON_CODE) {
 			collectNextToken();
+			needsSemi = false;
 		}
 		else {
 			addError("Unexpected token");
@@ -508,7 +313,169 @@ int Compiler::parseCodeSegment(SymbolInfo*& currentFunction, int scopeLevel, int
 		}
 	}
 
-	return popStackFrames;
+	return 0;
+}
+
+/// <summary>
+/// Here, we should be looking at N comma delimiated expressions. Each one is attached 
+/// in order to a SymbolInfo* stored in the function call's scope. So all I have to do is 
+/// calculate each of those arguments, store them on stack by saving them then unconditonally jump into
+/// to function call. Every argument should be copied onto the stack just waiting for us to take them off 
+/// and use them! Remember that these arguments are not a part of the previous stack frame, so it's
+/// the responsbility of the caller to restore the stack to the state before the fn call.
+/// </summary>
+/// <param name="ret"></param>
+void Compiler::parseFunctionCall(SymbolInfo*& functionSymbol, SymbolInfo*& ret) {
+	if (functionSymbol->typeInfo.baseSize == 0) {
+		addError("Funcitons must return a value to be used as an R value");
+	}
+
+	ret->accessType = QueSymbolAccessType::VARIABLE;
+	ret->symbolType = QueSymbolType::DATA;
+	ret->isGlobal = false;
+	ret->isTemporaryValue = false;
+	ret->typeInfo = functionSymbol->typeInfo;
+	ret->fileName = functionSymbol->fileName;
+	// Calculate each argument 
+	int argIdx = 0;
+
+	// Push all active registers to the stacc.
+	for (int i = 0; i < symbolStack.registerInUse.size(); i++) {
+		writeInstruction(encodeInstruction(PUSHW, false, symbolStack.registerInUse[i]));
+	}
+
+	// Set the base ptr offset to point to the things right before ra, sp, bp
+	while (currentToken.code != CLOSE_PARN_CODE) {
+		SymbolInfo* exprSymbol = new SymbolInfo(symbolStack.scopeIndex);
+
+		parseExpression(exprSymbol);
+
+		int reg = symbolStack.allocateIntRegister(*exprSymbol, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+		// For now, each and every operand is 4 bytes, so this doesn't have to be that complex.
+		writeInstruction(encodeInstruction(PUSHW, false, reg));
+		symbolStack.freeIntRegister(*exprSymbol, false);
+		argIdx++;
+
+		if (currentToken.code != COMMA_CODE) {
+			break;
+		}
+		else {
+			collectNextToken();
+		}
+	}
+
+	if (currentToken.code == CLOSE_PARN_CODE) {
+		collectNextToken();
+	}
+	else {
+		addError("Invalid parameters for function call");
+		collectNextToken();
+	}
+
+	if (functionSymbol->accessType == QueSymbolAccessType::IMPORTED) {
+		// TODO: handle imported
+	}
+	else {
+		writeInstruction(encodeInstruction(CALL, true), true, 
+			functionSymbol->value - (currentBinaryOffset + 4ULL));
+
+		// Restore the stacc after pushing args
+		if (argIdx != 0) {
+			writeInstruction(encodeInstruction(ADD, true, SP, SP), true, argIdx * 4);
+		}
+
+		// Pop off allocated registers to restore their state.
+		for (int i = symbolStack.registerInUse.size() - 1; i >= 0; i--) {
+			writeInstruction(encodeInstruction(POPW, false, symbolStack.registerInUse[i]));
+		}
+	}
+
+	// Move the value from R0, to the return variable.
+	int destReg = symbolStack.allocateIntRegister(*ret, RegisterAllocMode::DONT_LOAD);
+	writeInstruction(encodeInstruction(MOV, false, destReg, R0));
+
+	//symbolStack.freeIntRegister(*ret, true);
+}
+
+// An if statement parses an expression and compares the result to zero. If its zero, the condition returns false,
+// and it jumps around the if execution block, otherwise it's true and it continues execution only to
+// jump around the code that would have jumped out afterwards. Simple stuff
+void Compiler::parseIfStatement(SymbolInfo*& currentFunctions, int scopelevel, int scopeReturnAddress, int& subStackIndex) {
+	SymbolInfo* temporarySymbol = new SymbolInfo(symbolStack.scopeIndex);
+	parseExpression(temporarySymbol);
+	int reg = symbolStack.allocateIntRegister(*temporarySymbol, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+	writeInstruction(encodeInstruction(CMP, true, reg), true, 0);
+	//symbolStack.freeIntRegister(*temporarySymbol, true);
+
+	// Setup location to jump to
+	int falseJumpLblOffset = currentBinaryOffset + 4;
+	writeInstruction(encodeInstruction(JE, true), true, 0);
+
+	setupBlockStackframe(currentFunctions, scopelevel, scopelevel, subStackIndex);
+	subStackIndex++;
+
+	// Should jump around the stack frame if false, so update the label here.
+	fillInMissingImmediate(falseJumpLblOffset, currentBinaryOffset - falseJumpLblOffset);
+
+	if (currentToken.code == reserveTable.getReserveCode("else")) {
+		collectNextToken();
+		reg = symbolStack.allocateIntRegister(*temporarySymbol, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+		writeInstruction(encodeInstruction(CMP, true, reg), true, 1);
+		falseJumpLblOffset = currentBinaryOffset + 4;
+		writeInstruction(encodeInstruction(JE, true), true, 0);
+
+		if (currentToken.code == reserveTable.getReserveCode("if")) {
+			collectNextToken();
+			parseIfStatement(currentFunctions, scopelevel, scopeReturnAddress, subStackIndex);
+			subStackIndex++;
+		}
+		else if (currentToken.code == OPEN_BRK_CODE) {
+			setupBlockStackframe(currentFunctions, scopelevel, scopeReturnAddress, subStackIndex);
+			subStackIndex++;
+		}
+		else {
+			addError("Unexpected token");
+		}
+
+		// Fill in true jump around else
+		fillInMissingImmediate(falseJumpLblOffset, currentBinaryOffset - falseJumpLblOffset);
+	}
+
+	symbolStack.freeIntRegister(*temporarySymbol, false);
+}
+
+void Compiler::setupBlockStackframe(SymbolInfo*& currentFunction, int scopeLevel, int scopeReturnAddress, int subStackCount) {
+	int addr = 0;
+	int stackFrameSize = 0;
+	if (pass != 0) {
+		addr = currentFunction->functionReturnPointers[scopeLevel][subStackCount];
+		stackFrameSize = currentFunction->functionStackFrameSizes[scopeLevel][subStackCount];
+	}
+
+	// Make space for the variables
+	writeInstruction(encodeInstruction(SUB, true, SP, SP, 0), true, stackFrameSize);
+
+	collectNextToken();
+	symbolStack.pushScope();
+	symbolStack.setFrameSize(stackFrameSize);
+	int retPopStk = parseCodeSegment(currentFunction, scopeLevel + 1, addr);
+
+	// Normal stack frame exit: fix SP, jump past the stack frame terminator
+
+	if (pass == 0) {
+		currentFunction->functionReturnPointers[scopeLevel].push_back(currentBinaryOffset);
+		currentFunction->functionStackFrameSizes[scopeLevel].push_back(symbolStack.getCurrentBPOffset());
+	}
+	else {
+		currentFunction->functionReturnPointers[scopeLevel][subStackCount] = currentBinaryOffset;
+		currentFunction->functionStackFrameSizes[scopeLevel][subStackCount] = symbolStack.getCurrentBPOffset();
+	}
+
+	subStackCount++;
+
+	// First restore the stackpointer.
+	writeInstruction(encodeInstruction(ADD, true, SP, SP, 0), true, stackFrameSize);
+	symbolStack.popScope();
 }
 
 /// <summary>
@@ -524,7 +491,7 @@ void Compiler::parseFunctionDefinition(int modifiers, SymbolInfo*& functionSymbo
 	bool success = false;
 	symbolStack.pushScope();
 	std::vector<SymbolInfo*> arguments;
-	
+
 	// addRet is set to false if and only if we are in an entrypoint. Ret is replaced with a program halt swi
 	bool addRet = true;
 
@@ -548,12 +515,20 @@ void Compiler::parseFunctionDefinition(int modifiers, SymbolInfo*& functionSymbo
 
 		// Collect arguments from set.
 		// TODO somehow set offsets for arguments
+		int argIndex = 0;
 		while (!isEndOfStream()) {
 			int argModifiers = ARGUMENT_FLAG;
 
 			if (currentToken.code == IDENTIFIER_CODE) {
-				arguments.push_back(new SymbolInfo());
+				SymbolInfo* nextArgument;
+
+				nextArgument = new SymbolInfo(symbolStack.scopeIndex);
+				nextArgument->symbolType = QueSymbolType::DATA;
+				arguments.push_back(nextArgument);
+
 				parseVariableDeclaration(argModifiers, arguments[arguments.size() - 1]);
+				nextArgument->value = -(ARG_STACK_BP_OFFSET_START + (4 * argIndex));
+				argIndex++;
 			}
 			else if (currentToken.code == CLOSE_PARN_CODE) {
 				// Close paren escapes the argument list.
@@ -602,6 +577,7 @@ void Compiler::parseFunctionDefinition(int modifiers, SymbolInfo*& functionSymbo
 
 				writeInstruction(encodeInstruction(PUSHW, false, RA));
 				writeInstruction(encodeInstruction(PUSHW, false, BP));
+				writeInstruction(encodeInstruction(PUSHW, false, SP));
 				writeInstruction(encodeInstruction(MOV, false, BP, SP));
 
 				// Subtract stack space for the variables
@@ -614,9 +590,11 @@ void Compiler::parseFunctionDefinition(int modifiers, SymbolInfo*& functionSymbo
 				functionSymbol->baseStackFrameSize = symbolStack.getCurrentBPOffset();
 
 				// First restore the stackpointer.
-				if (symbolStack.getCurrentBPOffset() != 0) {
-					writeInstruction(encodeInstruction(ADD, true, SP, SP, 0), true, symbolStack.getCurrentBPOffset());
-				}
+				//if (symbolStack.getCurrentBPOffset() != 0) {
+					//writeInstruction(encodeInstruction(ADD, true, SP, SP, 0), true, symbolStack.getCurrentBPOffset());
+				//}
+				// Restore the previous stack pointer
+				writeInstruction(encodeInstruction(LW, false, SP, BP));
 
 				// pop bp
 				// mov sp, bp
@@ -716,12 +694,9 @@ void Compiler::parseConst(SymbolInfo*& symbolInfo, bool allowRefs) {
 // then a type value and an optional equals
 // Function is responsible for getting the variable name and typecode
 void Compiler::parseVariableDeclaration(int modifiers, SymbolInfo*& symbolInfo, std::vector<SymbolInfo*>* args) {
-	if (args != nullptr) {
-		symbolInfo->fnArgs = *args;
-	}
-
 	if (currentToken.code == IDENTIFIER_CODE) {
 		symbolInfo->name = currentToken.lexeme;
+		symbolInfo->fileName = currentToken.lexeme;
 		collectNextToken();
 		bool success = true;
 
@@ -758,13 +733,17 @@ void Compiler::parseVariableDeclaration(int modifiers, SymbolInfo*& symbolInfo, 
 				return;
 			}
 
+			if (args != nullptr) {
+				symbolInfo->fnArgs = *args;
+			}
+
 			// Allocate space for variable, whether we are in the data segment, args, or local variables,
 			// We can handle it here.
 			symbolStack.pushVariable(*symbolInfo);
 
 			// Handle initialization, if its a variable (data or local)
 			if ((symbolInfo->accessType == QueSymbolAccessType::LOCAL ||
-				symbolInfo->accessType == QueSymbolAccessType::EXPORTED)) 
+				symbolInfo->accessType == QueSymbolAccessType::EXPORTED))
 			{
 				// Handle data varaible
 				if (symbolInfo->symbolType == QueSymbolType::DATA) {
@@ -804,9 +783,9 @@ void Compiler::parseVariableDeclaration(int modifiers, SymbolInfo*& symbolInfo, 
 					collectNextToken();
 					// Handle local variable
 					if (symbolInfo->symbolType == QueSymbolType::DATA) {
-						SymbolInfo* assignment = new SymbolInfo();
+						SymbolInfo* assignment = new SymbolInfo(symbolStack.scopeIndex);
 						parseExpression(assignment);
-						writeAssignment(*symbolInfo, *assignment);
+						writeAssignmentInstructions(*symbolInfo, *assignment);
 					} // Normal scoped local variable
 					// TODO: arrays
 				}
@@ -845,7 +824,7 @@ void Compiler::getSymbolInfo(int modifiers, SymbolInfo& info) {
 		}
 
 		if (modifiers & ARGUMENT_FLAG) {
-			info.accessType = QueSymbolAccessType::ARGUMENT;
+			info.accessType = QueSymbolAccessType::VARIABLE;
 		}
 		else if (modifiers & LOCAL_VAR_FLAG) {
 			info.accessType = QueSymbolAccessType::VARIABLE;
@@ -877,6 +856,42 @@ bool Compiler::readOneTwoChar() {
 	if (buffer[bufferIndex] == ',') {
 		currentToken.lexeme = ",";
 		currentToken.code = COMMA_CODE;
+	}
+	else if (buffer[bufferIndex] == '&' && buffer[bufferIndex + 1] == '&') {
+		currentToken.lexeme = "&&";
+		currentToken.code = AND_AND_CODE;
+		bufferIndex++;
+	}
+	else if (buffer[bufferIndex] == '|' && buffer[bufferIndex + 1] == '|') {
+		currentToken.lexeme = "||";
+		currentToken.code = OR_OR_CODE;
+		bufferIndex++;
+	}
+	else if (buffer[bufferIndex] == '<' && buffer[bufferIndex + 1] == '<') {
+		currentToken.lexeme = "<<";
+		currentToken.code = LSL_CODE;
+		bufferIndex++;
+	}
+	else if (buffer[bufferIndex] == '>' && buffer[bufferIndex + 1] == '>') {
+		currentToken.lexeme = ">>";
+		currentToken.code = LSR_CODE;
+		bufferIndex++;
+	}
+	else if (buffer[bufferIndex] == '&') {
+		currentToken.lexeme = '&';
+		currentToken.code = AND_CODE;
+	}
+	else if (buffer[bufferIndex] == '|') {
+		currentToken.lexeme = '|';
+		currentToken.code = OR_CODE;
+	}
+	else if (buffer[bufferIndex] == '^') {
+		currentToken.lexeme = '^';
+		currentToken.code = XOR_CODE;
+	}
+	else if (buffer[bufferIndex] == '!') {
+		currentToken.lexeme = '!';
+		currentToken.code = NOT_CODE;
 	}
 	else if (buffer[bufferIndex] == '>' && buffer[bufferIndex + 1] == '=') {
 		currentToken.lexeme = ">=";
@@ -989,9 +1004,9 @@ void SymbolStack::pushVariable(SymbolInfo& symbol) {
 	}
 	else if (symbol.accessType == QueSymbolAccessType::VARIABLE) {
 		assert(!atGlobalScope());
+		symbol.stackFrameIndex = scopeIndex;
 		localScope[scopeIndex]->pushLocalVariable(compiler, size);
-		symbol.value = localScope[scopeIndex]->currentOffsetFromBP;
-		//localScope[scopeIndex]->setSymbolValue(symbol.name, symbol.value);
+		symbol.value = localScope[scopeIndex]->getLocalBPOffset();
 	}
 	else if (symbol.accessType == QueSymbolAccessType::COMPILER_ACCESS) {
 		// We don't need to do anything.
@@ -1007,21 +1022,76 @@ void LocalSymbolTable::pushLocalVariable(Compiler* compiler, int size) {
 }
 
 bool Compiler::isAddop() {
-	if (currentToken.code == PLUS_CODE || currentToken.code == MINUS_CODE) {
+	if (currentToken.code == PLUS_CODE || 
+		currentToken.code == MINUS_CODE ||
+		currentToken.code == AND_CODE ||
+		currentToken.code == OR_CODE
+	) {
+	}
+	else {
+		return false;
+	}
+	return true;
+}
+
+bool Compiler::isMulop() {
+	if (
+		currentToken.code == STAR_CODE ||
+		currentToken.code == DIV_CODE ||
+		currentToken.code == MODULUS_CODE ||
+		currentToken.code == XOR_CODE ||
+		currentToken.code == LSL_CODE ||
+		currentToken.code == LSR_CODE
+		) {
 		return true;
 	}
 	return false;
 }
 
-bool Compiler::isMulop() {
-	if (
-		currentToken.code == STAR_CODE || 
-		currentToken.code == DIV_CODE || 
-		currentToken.code == MODULUS_CODE
-		) {
-		return true;
+void Compiler::parseMulOp(Operator& op) {
+	if (currentToken.code == STAR_CODE) {
+		op = Operator::MULT;
 	}
-	return false;
+	else if (currentToken.code == DIV_CODE) {
+		op = Operator::DIV;
+	}
+	else if (currentToken.code == MODULUS_CODE) {
+		op = Operator::MOD;
+	}
+	else if (currentToken.code == XOR_CODE) {
+		op = Operator::XOR;
+	}
+	else if (currentToken.code == LSL_CODE) {
+		op = Operator::LSL;
+	}
+	else if (currentToken.code == LSR_CODE) {
+		op = Operator::LSR;
+	}
+	else {
+		addError("Expected mul operator");
+	}
+
+	collectNextToken();
+}
+
+void Compiler::parseAddOp(Operator& op) {
+	if (currentToken.code == PLUS_CODE) {
+		op = Operator::ADD;
+	}
+	else if (currentToken.code == MINUS_CODE) {
+		op = Operator::SUB;
+	}
+	else if (currentToken.code == AND_CODE) {
+		op = Operator::AND;
+	}
+	else if (currentToken.code == OR_CODE) {
+		op = Operator::OR;
+	}
+	else {
+		addError("Expected add operator");
+	}
+
+	collectNextToken();
 }
 
 bool Compiler::isCompareOp() {
@@ -1042,36 +1112,6 @@ bool Compiler::isCompareOp() {
 	}
 
 	return true;
-}
-
-void Compiler::parseMulOp(Operator& op) {
-	if (currentToken.code == STAR_CODE) {
-		op = Operator::MULT;
-	}
-	else if (currentToken.code == DIV_CODE) {
-		op = Operator::DIV;
-	}
-	else if (currentToken.code == MODULUS_CODE) {
-		op = Operator::MOD;
-	}
-	else {
-		addError("Expected mul operator");
-	}
-
-	collectNextToken();
-}
-void Compiler::parseAddOp(Operator& op) {
-	if (currentToken.code == PLUS_CODE) {
-		op = Operator::ADD;
-	}
-	else if (currentToken.code == MINUS_CODE) {
-		op = Operator::SUB;
-	}
-	else {
-		addError("Expected add operator");
-	}
-
-	collectNextToken();
 }
 
 void Compiler::parseCompareOp(Operator& op) {
@@ -1098,4 +1138,18 @@ void Compiler::parseCompareOp(Operator& op) {
 	}
 
 	collectNextToken();
+}
+
+bool Compiler::isPostFix() {
+	if (currentToken.code == OPEN_BRACE_CODE) {
+		return true;
+	}
+
+	return false;
+}
+
+void Compiler::parsePostFixOp(Operator& op) {
+	if (currentToken.code == OPEN_BRACE_CODE) {
+		op = Operator::ARRAY_INDEX;
+	}
 }

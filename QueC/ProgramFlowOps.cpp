@@ -1,7 +1,71 @@
 
 #include "Compiler.h"
 
-void Compiler::writeAssignment(SymbolInfo& left, SymbolInfo& right) {
+void Compiler::writePtrIndexInstructions(SymbolInfo& left, SymbolInfo& right) {
+	// Essentially just performs a multiplication by the type's size on the right term, 
+	// Then adds that to the left value and gets the value.
+	int leftRegister = symbolStack.allocateIntRegister(left, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+	int rightRegister = symbolStack.allocateIntRegister(right, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+
+	left.typeInfo.ptrCount--;
+
+	if (left.typeInfo.sizeInMemory() != 1) {
+		writeInstruction(encodeInstruction(MUL, true, rightRegister, rightRegister), true, left.typeInfo.sizeInMemory());
+	}
+	
+	writeInstruction(encodeInstruction(ADD, false, rightRegister, leftRegister, rightRegister));
+
+	// Now dereference the right register into the left
+	writeLoadValueFromAddressInstructions(left, 0, rightRegister, leftRegister);
+
+	//symbolStack.freeIntRegister(left, true);
+	//symbolStack.freeIntRegister(right, false);
+}
+
+void Compiler::parseArrayIndexer(SymbolInfo*& symbol) {
+	// When the symbol was loaded from memory, a pointer count was added to it, to counteract this,
+	// remove it here.
+	symbol->typeInfo.ptrCount--;
+	int symbolAddressRegister = symbolStack.allocateIntRegister(*symbol, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+	int arrayIndexIdx = 0;
+
+	while (arrayIndexIdx < symbol->totalDimensionSizes.size()) {
+		if (currentToken.code != OPEN_BRACE_CODE && arrayIndexIdx != 0) {
+			addError("Too few indexers for array type should be " + std::to_string(symbol->totalDimensionSizes.size()));
+			collectNextToken();
+			break;
+		}
+		else if (arrayIndexIdx != 0) {
+			collectNextToken();
+		}
+
+		SymbolInfo* right = new SymbolInfo(symbolStack.scopeIndex);
+		parseExpression(right);
+
+		int offsetRegister = symbolStack.allocateIntRegister(*right, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+
+		if (currentToken.code == CLOSE_BRACE_CODE) {
+			collectNextToken();
+			writeInstruction(encodeInstruction(MUL, true, offsetRegister, offsetRegister),
+				true, (symbol->totalDimensionSizes[arrayIndexIdx] / symbol->dimensions[arrayIndexIdx]) * symbol->typeInfo.sizeInMemory());
+			writeInstruction(encodeInstruction(ADD, false, symbolAddressRegister, 
+				symbolAddressRegister, offsetRegister));
+			symbolStack.freeIntRegister(*right, false);
+		}
+		else {
+			addError("Expected ']'");
+			collectNextToken();
+		}
+
+		arrayIndexIdx++;
+	}
+
+	// Turn it into a data variable.
+	writeLoadValueFromAddressInstructions(*symbol, 0, symbolAddressRegister, symbolAddressRegister);
+	symbol->symbolType = QueSymbolType::DATA;
+}
+
+void Compiler::writeAssignmentInstructions(SymbolInfo& left, SymbolInfo& right) {
 	// Assign a register to the right symbol, then assign one to the right symbol
 	// If we are an array or function, storing the address is fine, otherwise, the register should
 	// hold the value.
@@ -112,6 +176,21 @@ void Compiler::writeOperatorInstructions(SymbolInfo& left, SymbolInfo& right, Op
 	}
 	else if (op == Operator::MOD) {
 		opcode = encodeInstruction(MOD, false, leftRegister, leftRegister, rightRegister);
+	}
+	else if (op == Operator::AND) {
+		opcode = encodeInstruction(AND, false, leftRegister, leftRegister, rightRegister);
+	}
+	else if (op == Operator::OR) {
+		opcode = encodeInstruction(OR, false, leftRegister, leftRegister, rightRegister);
+	}
+	else if (op == Operator::XOR) {
+		opcode = encodeInstruction(XOR, false, leftRegister, leftRegister, rightRegister);
+	}
+	else if (op == Operator::LSL) {
+		opcode = encodeInstruction(LSL, false, leftRegister, leftRegister, rightRegister);
+	}
+	else if (op == Operator::LSR) {
+		opcode = encodeInstruction(LSR, false, leftRegister, leftRegister, rightRegister);
 	}
 
 	writeInstruction(opcode);

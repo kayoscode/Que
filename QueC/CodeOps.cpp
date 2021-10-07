@@ -26,7 +26,7 @@ void Compiler::parseExpression(SymbolInfo*& left) {
         
 	while ((isAddop() || isCompareOp()) && (!isEndOfStream()) && (!errorsFound)) {
 		// Create temporary variable for ad op.
-		SymbolInfo* right = new SymbolInfo();
+		SymbolInfo* right = new SymbolInfo(symbolStack.scopeIndex);
 
 		if (isAddop()) {
 			parseAddOp(op);
@@ -47,16 +47,49 @@ void Compiler::parseExpression(SymbolInfo*& left) {
 void Compiler::parseTerm(SymbolInfo*& left) {
 	Operator op;
         
-	parseFactor(left);
+	parsePostFix(left);
 
 	while ((isMulop() && (!isEndOfStream()) && (!errorsFound))) {
 		parseMulOp(op);
-		SymbolInfo* right = new SymbolInfo();
-		parseFactor(right);
+		SymbolInfo* right = new SymbolInfo(symbolStack.scopeIndex);
+		parsePostFix(right);
 		writeOperatorInstructions(*left, *right, op);
 
 		// Don't need to hold on to temporary registers
 		symbolStack.freeIntRegister(*right, false);
+	}
+}
+
+void Compiler::parsePostFix(SymbolInfo*& left) {
+	Operator op;
+        
+	parseFactor(left);
+
+	while ((isPostFix() && (!isEndOfStream()) && (!errorsFound))) {
+		parsePostFixOp(op);
+		if (op == Operator::ARRAY_INDEX) {
+			collectNextToken();
+
+			if (left->symbolType == QueSymbolType::ARRAY) {
+				parseArrayIndexer(left);
+			}
+			else if (left->symbolType == QueSymbolType::DATA && left->typeInfo.ptrCount > 0) {
+				SymbolInfo* right = new SymbolInfo(symbolStack.scopeIndex);
+				parseExpression(right);
+				writePtrIndexInstructions(*left, *right);
+				symbolStack.freeIntRegister(*right, false);
+
+				if (currentToken.code == CLOSE_BRACE_CODE) {
+					collectNextToken();
+				}
+				else {
+					addError("Expected ']'");
+				}
+			}
+			else {
+				addError("Array index operator invalid on this type");
+			}
+		}
 	}
 }
 
@@ -82,6 +115,13 @@ void Compiler::parseFactor(SymbolInfo*& targetSymbol) {
 	else {
 		addError("Expected a value");
 	}
+
+	if (targetSymbol->symbolType == QueSymbolType::FUNCTION) {
+		if (currentToken.code == OPEN_PARN_CODE) {
+			collectNextToken();
+			parseFunctionCall(targetSymbol, targetSymbol);
+		}
+	}
 }
 
 void Compiler::parseIdentifierValue(SymbolInfo*& symbolInfo) {
@@ -96,9 +136,13 @@ void Compiler::parseIdentifierValue(SymbolInfo*& symbolInfo) {
 			symbolInfo->isTemporaryValue = true;
 		}
 		else {
-			if (symbolInfo->symbolType == QueSymbolType::ARRAY || symbolInfo->symbolType == QueSymbolType::FUNCTION) {
+			if (symbolInfo->symbolType == QueSymbolType::ARRAY) {
 				symbolInfo->typeInfo.ptrCount++;
 			}
+			else if (symbolInfo->symbolType == QueSymbolType::FUNCTION) {
+				// The result now has to be in a register.
+			}
+
 			symbolInfo->isTemporaryValue = false;
 		}
 	}
@@ -137,7 +181,7 @@ bool Compiler::getValueFromToken(SymbolInfo*& info) {
 		collectNextToken();
 	}
 	else if (currentToken.code == INTEGER_CODE || currentToken.code == HEX_INTEGER_CODE ||
-		currentToken.code == OCTAL_INTER_CODE || currentToken.code == BINARY_INTEGER_CODE) 
+		currentToken.code == OCTAL_INTER_CODE || currentToken.code == BINARY_INTEGER_CODE)
 	{
 		// Create temporary register to store constant value.
 		info->isTemporaryValue = true;
@@ -333,16 +377,15 @@ void Compiler::parseRef(SymbolInfo& info) {
 int SymbolStack::allocateIntRegister(SymbolInfo& info, RegisterAllocMode mode) {
 	// See if we already have a register for that variable.
 	// If so, return it.
-	std::map<std::string, Register>::iterator registerUsed =
-		registerAllocationStack[scopeIndex].find(info.name);
+	std::map<std::string, Register>::iterator registerUsed = registerAllocationStack.find(info.name);
 
-	if (registerUsed != registerAllocationStack[scopeIndex].end()) {
+	if (registerUsed != registerAllocationStack.end()) {
 		// Move the register to the top
-		registerInUse[scopeIndex].push_back((Register)registerUsed->second);
+		registerInUse.push_back((Register)registerUsed->second);
 
-		for (int i = 0; i < registerInUse[scopeIndex].size(); i++) {
-			if (registerInUse[scopeIndex][i] == registerUsed->second) {
-				registerInUse[scopeIndex].erase(registerInUse[scopeIndex].begin() + i);
+		for (int i = 0; i < registerInUse.size(); i++) {
+			if (registerInUse[i] == registerUsed->second) {
+				registerInUse.erase(registerInUse.begin() + i);
 				break;
 			}
 		}
@@ -355,14 +398,14 @@ int SymbolStack::allocateIntRegister(SymbolInfo& info, RegisterAllocMode mode) {
 	// We are free to use registers 2-15 at will.
 	int toUse = 0;
 
-	if (registerInUse[scopeIndex].size() > (R15 - USABLE_REGISTER_START)) {
+	if (registerInUse.size() > (R15 - USABLE_REGISTER_START)) {
 		// Remove the register used the longest time ago, store the result on stack.
-		toUse = registerInUse[scopeIndex][0];
+		toUse = registerInUse[0];
 
 		// Find out which symbol is using it, then free that symbol
 		SymbolInfo* toFree = nullptr;
 		for (std::map<std::string, Register>::iterator i =
-			registerAllocationStack[scopeIndex].begin(); i != registerAllocationStack[scopeIndex].end();
+			registerAllocationStack.begin(); i != registerAllocationStack.end();
 			i++)
 		{
 			if (i->second == toUse) {
@@ -376,12 +419,12 @@ int SymbolStack::allocateIntRegister(SymbolInfo& info, RegisterAllocMode mode) {
 		}
 	}
 	else {
-		toUse = availableRegisters[scopeIndex].top();
-		availableRegisters[scopeIndex].pop();
+		toUse = availableRegisters.top();
+		availableRegisters.pop();
 	}
 
-	registerInUse[scopeIndex].push_back((Register)toUse);
-	registerAllocationStack[scopeIndex][info.name] = (Register)toUse;
+	registerInUse.push_back((Register)toUse);
+	registerAllocationStack[info.name] = (Register)toUse;
 
 	// Once we get a register, if we require a register load, load the value in.
 	if (mode == RegisterAllocMode::LOAD_ADDRESS_OR_VALUE) {
@@ -401,15 +444,15 @@ int SymbolStack::allocateIntRegister(SymbolInfo& info, RegisterAllocMode mode) {
 void SymbolStack::freeIntRegister(SymbolInfo& info, bool preserveValue) {
 	// If the variable is a temporary value, write it to memory and change it to a local
 	std::map<std::string, Register>::iterator registerUsed =
-		registerAllocationStack[scopeIndex].find(info.name);
+		registerAllocationStack.find(info.name);
 
-	if (registerUsed != registerAllocationStack[scopeIndex].end()) {
+	if (registerUsed != registerAllocationStack.end()) {
 		int registerToFree = registerUsed->second;
-		registerAllocationStack[scopeIndex].erase(registerUsed);
+		registerAllocationStack.erase(registerUsed);
 
-		for (int i = 0; i < registerInUse[scopeIndex].size(); i++) {
-			if (registerInUse[scopeIndex][i] == (Register)registerToFree) {
-				registerInUse[scopeIndex].erase(registerInUse[scopeIndex].begin() + i);
+		for (int i = 0; i < registerInUse.size(); i++) {
+			if (registerInUse[i] == (Register)registerToFree) {
+				registerInUse.erase(registerInUse.begin() + i);
 				break;
 			}
 		}
@@ -432,9 +475,12 @@ void SymbolStack::freeIntRegister(SymbolInfo& info, bool preserveValue) {
 			compiler->writeStoreValueInAddressInstructions(info, offset, BP, registerToFree);
 		}
 
-		availableRegisters[scopeIndex].push(registerToFree);
+		availableRegisters.push((Register)registerToFree);
 	}
 	else {
-		std::cout << "Something went very wrong freeing register\n";
+		if (preserveValue) {
+			std::cout << "Attempted to free an unallocated variable (This is an internal compiler bug.";
+		}
 	}
 }
+

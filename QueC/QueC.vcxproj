@@ -142,6 +142,7 @@
     <ClCompile Include="CodeOps.cpp" />
     <ClCompile Include="Compiler.cpp" />
     <ClCompile Include="ConstantOps.cpp" />
+    <ClCompile Include="Obj.cpp" />
     <ClCompile Include="ProgramFlowOps.cpp" />
     <ClCompile Include="qc.cpp" />
   </ItemGroup>

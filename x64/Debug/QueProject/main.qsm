@@ -4,19 +4,30 @@ const SWI_PRINT_INT 0x02
 const SWI_PRINT_CHAR 0x03
 const SWI_PRINT_FLOAT 0x04
 const SWI_PRINT_STRING 0x05
+const SWI_READ_STRING 0x06
+
+const strLen 40
 
 label function
 
 segment text
 	; Entrypoint main - executes main program.
 	entrypt label main:
-		la r0, function
-		;swi SWI_PRINT_INT
+		; Load user input
+		la r0, prompt
+		swi SWI_PRINT_STRING
 		
-		; Call the loaded function
-		push ra
-		call r0
-		pop ra
+		la r0, string
+		mov r1, strLen
+		swi SWI_READ_STRING
+		la r0, string
+		swi SWI_PRINT_STRING
+	
+		; Call the function
+		la r0, string
+		push r0
+		call function
+		pop r1
 		
 		swi SWI_PRINT_INT
 		swi SWI_EXIT
@@ -25,4 +36,8 @@ end
 segment data
 	label newline:
 		asciiz "\n"
+	label string:
+		space 40
+	label prompt:
+		asciiz "Please enter a word: "
 end

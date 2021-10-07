@@ -33,6 +33,11 @@ enum class Operator {
 	ADD,
 	SUB,
 	MOD,
+	AND,
+	OR,
+	XOR,
+	LSL,
+	LSR,
 
 	CMP_GT,
 	CMP_LT,
@@ -40,6 +45,13 @@ enum class Operator {
 	CMP_LTE,
 	CMP_EQ,
 	CMP_NE,
+
+	// Logical ops
+	AND_AND,
+	OR_OR,
+	NOT,
+
+	ARRAY_INDEX,
 };
 
 /// <summary>

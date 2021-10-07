@@ -63,11 +63,28 @@ void SWI_0x05_PRINT_STRING(VirtualMachine& cpu) noexcept {
 	std::cout << (cpu.mMemory + cpu.mRegisters[VirtualMachine::R0]);
 }
 
+/// <summary>
+/// This software interrupts expects that an address in which to read a string is 
+/// given in R0. R1 holds a max size to prevent things like buffer overflows.
+/// </summary>
+/// <param name="cpu"></param>
+/// <returns></returns>
+void SWI_0x06_READ_STRING(VirtualMachine& cpu) noexcept {
+	std::string input;
+	int addr = cpu.mRegisters[VirtualMachine::R0];
+
+	std::cin >> input;
+	std::memcpy(cpu.mMemory + addr, input.c_str(), cpu.mRegisters[VirtualMachine::R1]);
+}
+
 void (*softwareInterruptTable[32])(VirtualMachine& machine) = {
 	SWI_0x00_TERMINATE, 
 	// Printing software interrupts
 	SWI_0x01_PRINTF, SWI_0x02_PRINT_INT, SWI_0x03_PRINT_CHAR,
-	SWI_0x04_PRINT_FLOAT, SWI_0x05_PRINT_STRING
+	SWI_0x04_PRINT_FLOAT, SWI_0x05_PRINT_STRING,
+
+	// Reading interrupts
+	SWI_0x06_READ_STRING
 };
 
 void handleSWI(VirtualMachine& cpu, int code) noexcept {
