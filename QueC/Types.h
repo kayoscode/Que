@@ -50,6 +50,8 @@ enum class Operator {
 	AND_AND,
 	OR_OR,
 	NOT,
+	NEGATE,
+	COMPLEMENT,
 
 	ARRAY_INDEX,
 };

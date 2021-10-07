@@ -56,6 +56,7 @@ constexpr int OR_CODE = 133;
 constexpr int LSL_CODE = 134;
 constexpr int LSR_CODE = 135;
 constexpr int XOR_CODE = 136;
+constexpr int COMP_CODE = 137;
 
 #define MAX_CONSTANT_VALUE_SIZE 8
 
@@ -200,16 +201,20 @@ virtual void fillInMissingImmediate(int valueAddress, int value) {
 	void parseConstantExpression(ConstantValue& value, SymbolInfo& targetSymbolInfo, bool allowRefs);
 	void parseConstantTerm(ConstantValue& value, SymbolInfo& targetSymbolInfo, bool allowRefs);
 	void parseConstantFactor(ConstantValue& value, SymbolInfo& targetSymbolInfo, bool allowRefs);
+	void parsePrefixOp(Operator& op);
 	void parseMulOp(Operator& op);
 	void parseAddOp(Operator& op);
+	void parseLogicalOp(Operator& op);
 	void parseCompareOp(Operator& op);
 	void parsePostFixOp(Operator& op);
 	void parseConst(SymbolInfo*& value, bool allowRefs);
 	bool parseConstantRef(ConstantValue& value, SymbolInfo& symbolInfo, bool allowRefs);
 	void parseConstantArrayInitializer(SymbolInfo& symbolInfo, int previousOffset, int currentDim);
 	void getConstantAddressOfSymbol(const std::string& symbolName, ConstantValue& value, SymbolInfo& symbolInfo, bool allowRefs);
+	bool isPrefixOp();
 	bool isMulop();
 	bool isAddop();
+	bool isLogicalOp();
 	bool isCompareOp();
 	bool isPostFix();
 
@@ -220,6 +225,8 @@ virtual void fillInMissingImmediate(int valueAddress, int value) {
 	/// <param name="info"></param>
 	void parseExpression(SymbolInfo*& info);
 	void parseTerm(SymbolInfo*& info);
+	void parseStandardExpr(SymbolInfo*& info);
+	void parseCompareExpr(SymbolInfo*& info);
 	void parsePostFix(SymbolInfo*& info);
 	void parseFactor(SymbolInfo*& info);
 	bool getValueFromToken(SymbolInfo*& info);
@@ -356,6 +363,8 @@ virtual void fillInMissingImmediate(int valueAddress, int value) {
 	void writeCompareOperatorInstructions(SymbolInfo& left, SymbolInfo& right, Operator op);
 	void writeAssignmentInstructions(SymbolInfo& left, SymbolInfo& right);
 	void writePtrIndexInstructions(SymbolInfo& left, SymbolInfo& right);
+	void writePrefixOperatorInstructions(SymbolInfo& left, Operator op);
+	void writeLogicalOperatorInstructions(SymbolInfo& left, SymbolInfo*& right, Operator op);
 
 protected:
 	SymbolStack symbolStack;

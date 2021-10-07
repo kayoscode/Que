@@ -1,5 +1,4 @@
-
 export fn(string: i8*)function : i32
 {
-	return 20 << (3 >> 1);
+	
 }

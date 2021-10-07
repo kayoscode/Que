@@ -1,6 +1,96 @@
 
 #include "Compiler.h"
 
+void Compiler::writeLogicalOperatorInstructions(SymbolInfo&left, SymbolInfo*& right, Operator op) {
+	int leftRegister = symbolStack.allocateIntRegister(left, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+
+	writeInstruction(encodeInstruction(CMP, true, leftRegister), true, 0);
+	int jumpFillLocation = currentBinaryOffset + 4ULL;
+	bool shortCircuitAnswer = false;
+
+	if (op == Operator::AND_AND) {
+		// Compare the first term to zero, if it is equal, jump around the instructions for the second conditon.
+		writeInstruction(encodeInstruction(JE, true), true, 0);
+		shortCircuitAnswer = false;
+	}
+	else if (op == Operator::OR_OR) {
+		// Compare the first term to zero, if it is NOT equal, jump around the instructions for the second conditon.
+		writeInstruction(encodeInstruction(JNE, true), true, 0);
+		shortCircuitAnswer = true;
+	}
+
+	// Parse the next term, but we want to jump around it if we can overload.
+	parseCompareExpr(right);
+	int rightRegister = symbolStack.allocateIntRegister(*right, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+
+	// Perform the comparison on the right term
+	writeInstruction(encodeInstruction(CMP, true, rightRegister), true, 0);
+	symbolStack.freeIntRegister(*right, false);
+
+	int jumpFillLocation2 = currentBinaryOffset + 4ULL;
+	if (op == Operator::AND_AND) {
+		// Compare the first term to zero, if it is equal, jump around the instructions for the second conditon.
+		writeInstruction(encodeInstruction(JE, true), true, 0);
+	}
+	else if (op == Operator::OR_OR) {
+		// Compare the first term to zero, if it is NOT equal, jump around the instructions for the second conditon.
+		writeInstruction(encodeInstruction(JNE, true), true, 0);
+	}
+
+	// Ensure the left register is still allocated!!
+	leftRegister = symbolStack.allocateIntRegister(left, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+	// If we got down here, it means the condition is true.
+	writeInstruction(encodeInstruction(MOV, true, leftRegister), true, !shortCircuitAnswer);
+	int fillJumpLocationTrue = currentBinaryOffset + 4ULL;
+	writeInstruction(encodeInstruction(JMP, true), true, 0);
+
+	// Jumps to the false condition
+	fillInMissingImmediate(jumpFillLocation, currentBinaryOffset - jumpFillLocation);
+	fillInMissingImmediate(jumpFillLocation2, currentBinaryOffset - jumpFillLocation2);
+
+	// If the jump was taken, we can short circuit the answer to false.
+	writeInstruction(encodeInstruction(MOV, true, leftRegister), true, shortCircuitAnswer);
+
+	fillInMissingImmediate(fillJumpLocationTrue, currentBinaryOffset - fillJumpLocationTrue);
+
+	left.typeInfo.baseSize = 1;
+	left.typeInfo.ptrCount = 0;
+	left.typeInfo.typeCode = TypeCode::TYPE_BOOL_CODE;
+}
+
+void Compiler::writePrefixOperatorInstructions(SymbolInfo& left, Operator op) {
+	int leftRegister = symbolStack.allocateIntRegister(left, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+
+	if (op == Operator::NOT) {
+		// We want the output to be a boolean which is zero is the input was non zero and 1 if the input is 1
+		writeInstruction(encodeInstruction(CMP, true, leftRegister), true, 0);
+		writeInstruction(encodeInstruction(MOV_E, true, leftRegister), true, 1);
+		writeInstruction(encodeInstruction(MOV_NE, true, leftRegister), true, 0);
+
+		left.typeInfo.baseSize = 1;
+		left.typeInfo.ptrCount = 0;
+		left.typeInfo.typeCode = TypeCode::TYPE_BOOL_CODE;
+	}
+
+	if (op == Operator::NEGATE) {
+		if (left.typeInfo.ptrCount > 0) {
+			addError("Invalid operation on pointer type");
+		}
+
+		// Multiply by negative 1.
+		writeInstruction(encodeInstruction(MUL, true, leftRegister, leftRegister), true, -1);
+	}
+	else if (op == Operator::COMPLEMENT) {
+		if (left.typeInfo.ptrCount > 0) {
+			addError("Invalid operation on pointer type");
+		}
+
+		// Negate the number, then subtract 1? Cant think of a better way to implement that right now.
+		writeInstruction(encodeInstruction(MUL, true, leftRegister, leftRegister), true, -1);
+		writeInstruction(encodeInstruction(SUB, true, leftRegister, leftRegister), true, 1);
+	}
+}
+
 void Compiler::writePtrIndexInstructions(SymbolInfo& left, SymbolInfo& right) {
 	// Essentially just performs a multiplication by the type's size on the right term, 
 	// Then adds that to the left value and gets the value.

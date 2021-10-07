@@ -857,6 +857,30 @@ bool Compiler::readOneTwoChar() {
 		currentToken.lexeme = ",";
 		currentToken.code = COMMA_CODE;
 	}
+	else if (buffer[bufferIndex] == '~') {
+		currentToken.lexeme = '~';
+		currentToken.code = COMP_CODE;
+	}
+	else if (buffer[bufferIndex] == '>' && buffer[bufferIndex + 1] == '=') {
+		currentToken.lexeme = ">=";
+		currentToken.code = GTE_CODE;
+		bufferIndex++;
+	}
+	else if (buffer[bufferIndex] == '<' && buffer[bufferIndex + 1] == '=') {
+		currentToken.lexeme = "<=";
+		currentToken.code = LTE_CODE;
+		bufferIndex++;
+	}
+	else if (buffer[bufferIndex] == '=' && buffer[bufferIndex + 1] == '=') {
+		currentToken.lexeme = "==";
+		currentToken.code = ARE_EQUAL_CODE;
+		bufferIndex++;
+	}
+	else if (buffer[bufferIndex] == '!' && buffer[bufferIndex + 1] == '=') {
+		currentToken.lexeme = "!=";
+		currentToken.code = NE_CODE;
+		bufferIndex++;
+	}
 	else if (buffer[bufferIndex] == '&' && buffer[bufferIndex + 1] == '&') {
 		currentToken.lexeme = "&&";
 		currentToken.code = AND_AND_CODE;
@@ -892,26 +916,6 @@ bool Compiler::readOneTwoChar() {
 	else if (buffer[bufferIndex] == '!') {
 		currentToken.lexeme = '!';
 		currentToken.code = NOT_CODE;
-	}
-	else if (buffer[bufferIndex] == '>' && buffer[bufferIndex + 1] == '=') {
-		currentToken.lexeme = ">=";
-		currentToken.code = GTE_CODE;
-		bufferIndex++;
-	}
-	else if (buffer[bufferIndex] == '<' && buffer[bufferIndex + 1] == '=') {
-		currentToken.lexeme = "<=";
-		currentToken.code = LTE_CODE;
-		bufferIndex++;
-	}
-	else if (buffer[bufferIndex] == '=' && buffer[bufferIndex + 1] == '=') {
-		currentToken.lexeme = "==";
-		currentToken.code = ARE_EQUAL_CODE;
-		bufferIndex++;
-	}
-	else if (buffer[bufferIndex] == '!' && buffer[bufferIndex + 1] == '=') {
-		currentToken.lexeme = "!=";
-		currentToken.code = NE_CODE;
-		bufferIndex++;
 	}
 	else if (buffer[bufferIndex] == '>') {
 		currentToken.lexeme = '>';
@@ -1019,6 +1023,61 @@ void SymbolStack::pushVariable(SymbolInfo& symbol) {
 void LocalSymbolTable::pushLocalVariable(Compiler* compiler, int size) {
 	//compiler->writeInstruction(encodeInstruction(SUB, true, SP, SP, 0), true, size);
 	currentOffsetFromBP += size;
+}
+
+bool Compiler::isPrefixOp() {
+	if (currentToken.code == NOT_CODE ||
+		currentToken.code == MINUS_CODE ||
+		currentToken.code == COMP_CODE
+		) {
+	}
+	else {
+		return false;
+	}
+
+	return true;
+}
+
+void Compiler::parsePrefixOp(Operator& op) {
+	if (currentToken.code == NOT_CODE) {
+		op = Operator::NOT;
+	}
+	else if (currentToken.code == MINUS_CODE) {
+		op = Operator::NEGATE;
+	}
+	else if (currentToken.code == COMP_CODE) {
+		op = Operator::COMPLEMENT;
+	}
+	else {
+		addError("Expected a prefix operator");
+	}
+
+	collectNextToken();
+}
+
+bool Compiler::isLogicalOp() {
+	if (currentToken.code == AND_AND_CODE) {
+	}
+	else if (currentToken.code == OR_OR_CODE) {
+	}
+	else {
+		return false;
+	}
+	return true;
+}
+
+void Compiler::parseLogicalOp(Operator& op) {
+	if (currentToken.code == AND_AND_CODE) {
+		op = Operator::AND_AND;
+	}
+	else if (currentToken.code == OR_OR_CODE) {
+		op = Operator::OR_OR;
+	}
+	else {
+		addError("Expected logical operator");
+	}
+
+	collectNextToken();
 }
 
 bool Compiler::isAddop() {

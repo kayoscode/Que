@@ -1,42 +1,70 @@
 #include "Compiler.h"
 
-#define TEMPORARY_VARIABLE_NOT_ON_STACK_VALUE 0xFFFFFFFF
+#define TEMPORARY_VARIABLE_NOT_ON_STACK_VALUE -1
 
 void Compiler::parseExpression(SymbolInfo*& left) {
 	Operator op;
+	bool hasPrefixOp = false;
+	Operator prefixOp;
 
-	int negate = 1;
-
-	// check optional sign  
-	if (currentToken.code == MINUS_CODE) {
-		collectNextToken();
-		negate = -1;
+	// Each expression can get ONE prefix operator.
+	if (isPrefixOp()) {
+		parsePrefixOp(prefixOp);
+		hasPrefixOp = true;
 	}
 
-	parseTerm(left);
+	parseCompareExpr(left);
 
-	//stop being so negative, this isn't that inefficient!
-	//multiply by -1 if the negation is there
-	if(negate == -1) {
-		//int minusOneIndex = symbolList.AddSymbol("-1", 'c', -1);
-		//((int32_t*)&negateConstant.value)[0] = -1;
-		//performOperatorOnConstants(left, negateConstant, left, Operator::MULT);
-		// Negate left
+	// Compute the prefix operator
+	if (hasPrefixOp) {
+		writePrefixOperatorInstructions(*left, prefixOp);
 	}
         
-	while ((isAddop() || isCompareOp()) && (!isEndOfStream()) && (!errorsFound)) {
+	while ((isLogicalOp()) && (!isEndOfStream()) && (!errorsFound)) {
 		// Create temporary variable for ad op.
+		SymbolInfo* right = new SymbolInfo(symbolStack.scopeIndex);
+
+		if (isLogicalOp()) {
+			parseLogicalOp(op);
+			writeLogicalOperatorInstructions(*left, right, op);
+		}
+
+		// Don't need to hold on to temporary registers
+		symbolStack.freeIntRegister(*right, false);
+	}
+}
+
+void Compiler::parseCompareExpr(SymbolInfo*& left) {
+	Operator op;
+        
+	parseStandardExpr(left);
+
+	while ((isCompareOp()) && (!isEndOfStream()) && (!errorsFound)) {
+		SymbolInfo* right = new SymbolInfo(symbolStack.scopeIndex);
+
+		if (isCompareOp()) {
+			parseCompareOp(op);
+			parseStandardExpr(right);
+			writeCompareOperatorInstructions(*left, *right, op);
+		}
+
+		// Don't need to hold on to temporary registers
+		symbolStack.freeIntRegister(*right, false);
+	}
+}
+
+void Compiler::parseStandardExpr(SymbolInfo*& left) {
+	Operator op;
+        
+	parseTerm(left);
+
+	while ((isAddop()) && (!isEndOfStream()) && (!errorsFound)) {
 		SymbolInfo* right = new SymbolInfo(symbolStack.scopeIndex);
 
 		if (isAddop()) {
 			parseAddOp(op);
 			parseTerm(right);
 			writeOperatorInstructions(*left, *right, op);
-		}
-		else if(isCompareOp()) {
-			parseCompareOp(op);
-			parseTerm(right);
-			writeCompareOperatorInstructions(*left, *right, op);
 		}
 
 		// Don't need to hold on to temporary registers
@@ -49,11 +77,14 @@ void Compiler::parseTerm(SymbolInfo*& left) {
         
 	parsePostFix(left);
 
-	while ((isMulop() && (!isEndOfStream()) && (!errorsFound))) {
-		parseMulOp(op);
+	while ((isMulop()) && (!isEndOfStream()) && (!errorsFound)) {
 		SymbolInfo* right = new SymbolInfo(symbolStack.scopeIndex);
-		parsePostFix(right);
-		writeOperatorInstructions(*left, *right, op);
+
+		if (isMulop()) {
+			parseMulOp(op);
+			parsePostFix(right);
+			writeOperatorInstructions(*left, *right, op);
+		}
 
 		// Don't need to hold on to temporary registers
 		symbolStack.freeIntRegister(*right, false);
@@ -109,11 +140,11 @@ void Compiler::parseFactor(SymbolInfo*& targetSymbol) {
 			addError("Expected ')'");
 		}
 	}
-	else if (currentToken.code == MINUS_CODE) {
+	else if (isPrefixOp()) {
 		parseExpression(targetSymbol);
 	}
 	else {
-		addError("Expected a value");
+		addError("Expected a factor");
 	}
 
 	if (targetSymbol->symbolType == QueSymbolType::FUNCTION) {
