@@ -1,5 +1,7 @@
 #pragma once
 
+#define TEMPORARY_VARIABLE_NOT_ON_STACK_VALUE -1
+
 #include <string>
 #include <map>
 #include <vector>
@@ -57,6 +59,7 @@ constexpr int LSL_CODE = 134;
 constexpr int LSR_CODE = 135;
 constexpr int XOR_CODE = 136;
 constexpr int COMP_CODE = 137;
+constexpr int CHAR_INT_CODE = 138;
 
 #define MAX_CONSTANT_VALUE_SIZE 8
 
@@ -105,7 +108,7 @@ protected:
 	/// Stores it on the current scope.
 	/// </summary>
 	/// <returns></returns>
-	void parseVariableDeclaration(int modifiers, SymbolInfo*& symbolInfo);
+	void parseVariableDeclaration(int modifiers, SymbolInfo*& symbolInfo, bool allowInit);
 
 	/// <summary>
 	/// Parses a function definition and leaves the state right before the code block.
@@ -127,6 +130,7 @@ protected:
 	int parseCodeSegment(SymbolInfo*& currentFunctions, int scopeLevel, int scopeReturnAddress);
 	void setupBlockStackframe(SymbolInfo*& currentFunction, int scopeLevel, int scopeReturnAddress, int subStackIndex);
 	void parseIfStatement(SymbolInfo*& currentFunctions, int scopelevel, int scopeReturnAddress, int& subStackIndex);
+	void parseIttLoop(SymbolInfo*& currentFunction, int scopeLevel, int scopeReturnAddress, int& subStackIndex);
 	void parseArrayInitializer(SymbolInfo*& symbolInfo, SymbolInfo*& variableSymbol, int previousOffset, int currentDim, bool fillZeros = false);
 
 	/// <summary>
@@ -276,6 +280,28 @@ virtual void fillInMissingImmediate(int valueAddress, int value) {
 			else if (readOneTwoChar()) {
 				bufferIndex++;
 			}
+			else if (buffer[bufferIndex] == '\'') {
+				currentToken.code = CHAR_INT_CODE;
+				char token = 0;
+
+				bufferIndex++;
+				if (buffer[bufferIndex] == '\\') {
+					token = readEscapedChar(buffer[bufferIndex]);
+					bufferIndex++;
+				}
+				else {
+					token = buffer[bufferIndex];
+				}
+
+				bufferIndex++;
+
+				if (buffer[bufferIndex] != '\'') {
+					addError("Expected '");
+				}
+
+				bufferIndex++;
+				currentToken.lexeme = token;
+			}
 			else {
 				// An error occurs in this case
 				endOfParse = true;
@@ -303,6 +329,14 @@ virtual void fillInMissingImmediate(int valueAddress, int value) {
 	uint32_t tokenTo32BitInt() {
 		int ret = 0;
 		int base = 10;
+
+		if (currentToken.code == CHAR_INT_CODE) {
+			if (currentToken.lexeme.size() != 1) {
+				addError("Invalid character: " + currentToken.lexeme);
+			}
+
+			return (int32_t)currentToken.lexeme[0];
+		}
 
 		if (currentToken.code == INTEGER_CODE) {
 			base = 10;
@@ -362,7 +396,7 @@ virtual void fillInMissingImmediate(int valueAddress, int value) {
 
 	void writeOperatorInstructions(SymbolInfo& left, SymbolInfo& right, Operator op);
 	void writeCompareOperatorInstructions(SymbolInfo& left, SymbolInfo& right, Operator op);
-	void writeAssignmentInstructions(SymbolInfo& left, SymbolInfo& right);
+	void writeAssignmentInstructions(SymbolInfo& left, SymbolInfo& right, bool freeLeft = true);
 	void writePtrIndexInstructions(SymbolInfo& left, SymbolInfo& right);
 	void writePrefixOperatorInstructions(SymbolInfo& left, Operator op);
 	void writeLogicalOperatorInstructions(SymbolInfo& left, SymbolInfo*& right, Operator op);

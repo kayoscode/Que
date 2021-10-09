@@ -10,6 +10,6 @@ C:\Users\Bryce\source\repos\ProgrammingLanguage\QueASM\Assembler.cpp(444,53): wa
   qasm.cpp
   Generating code
   Previous IPDB not found, fall back to full compilation.
-  All 926 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
+  All 927 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
   Finished generating code
   QueASM.vcxproj -> C:\Users\Bryce\source\repos\ProgrammingLanguage\x64\Release\QueASM.exe

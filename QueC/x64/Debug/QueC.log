@@ -1,6 +1,11 @@
-﻿  CodeOps.cpp
+﻿  Compiler.cpp
 C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Symbols.h(81,1): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
 C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Symbols.h(89,1): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
 C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Symbols.h(96,10): warning C4244: 'return': conversion from 'uint64_t' to 'int', possible loss of data
 C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Symbols.h(322,1): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(397,2): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(423,80): warning C4267: 'argument': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(427,3): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(1145,38): warning C4244: 'argument': conversion from 'uint64_t' to 'int', possible loss of data
+C:\Users\Bryce\source\repos\ProgrammingLanguage\QueC\Compiler.cpp(1150,55): warning C4244: 'argument': conversion from 'uint64_t' to 'int', possible loss of data
   QueC.vcxproj -> C:\Users\Bryce\source\repos\ProgrammingLanguage\x64\Debug\QueC.exe

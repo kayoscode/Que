@@ -35,6 +35,9 @@ Compiler::Compiler()
 	reserveTable.addReserveWord("sizeof", currentCode++);
 	reserveTable.addReserveWord("if", currentCode++);
 	reserveTable.addReserveWord("else", currentCode++);
+	reserveTable.addReserveWord("itt", currentCode++);
+	reserveTable.addReserveWord("from", currentCode++);
+	reserveTable.addReserveWord("to", currentCode++);
 	// entrypt is an attribute which can be attached to a function. Only one may be defined per assembly.
 	// Indicates where the program should start in the bin.
 
@@ -114,7 +117,7 @@ void Compiler::parseFile() {
 			collectNextToken();
 			SymbolInfo* info = new SymbolInfo(symbolStack.scopeIndex);
 			info->symbolType = QueSymbolType::DATA;
-			parseVariableDeclaration(modifiers, info);
+			parseVariableDeclaration(modifiers, info, true);
 		}
 		else if (currentToken.code == reserveTable.getReserveCode("fn")) {
 			collectNextToken();
@@ -227,7 +230,13 @@ int Compiler::parseCodeSegment(SymbolInfo*& currentFunction, int scopeLevel, int
 			collectNextToken();
 			SymbolInfo* info = new SymbolInfo(symbolStack.scopeIndex);
 			info->symbolType = QueSymbolType::DATA;
-			parseVariableDeclaration(LOCAL_VAR_FLAG, info);
+			parseVariableDeclaration(LOCAL_VAR_FLAG, info, true);
+		}
+		else if (currentToken.code == reserveTable.getReserveCode("itt")) {
+			collectNextToken();
+			parseIttLoop(currentFunction, scopeLevel, scopeReturnAddress, subStackCount);
+
+			needsSemi = false;
 		}
 		else if (currentToken.code == reserveTable.getReserveCode("if")) {
 			collectNextToken();
@@ -427,6 +436,84 @@ void Compiler::parseFunctionCall(SymbolInfo*& functionSymbol, SymbolInfo*& ret) 
 	//symbolStack.freeIntRegister(*ret, true);
 }
 
+// We should see a (variable declaration) or just an LValue followed by FROM expr TO expr (by expr)
+void Compiler::parseIttLoop(SymbolInfo*& currentFunction, int scopeLevel, int scopeReturnAddress, int& subStackIndex) {
+	// The variable is intentionally created in the outer scope so it can be used after the loop.
+	SymbolInfo* counterSymbol = nullptr;
+
+	if (currentToken.code == reserveTable.getReserveCode("var")) {
+		collectNextToken();
+		counterSymbol = new SymbolInfo(symbolStack.scopeIndex);
+		counterSymbol->accessType = QueSymbolAccessType::VARIABLE;
+		counterSymbol->symbolType = QueSymbolType::DATA;
+		parseVariableDeclaration(LOCAL_VAR_FLAG, counterSymbol, false);
+	}
+	// This should be a valid L value too .. :(
+	else if (currentToken.code == IDENTIFIER_CODE) {
+		counterSymbol = symbolStack.searchSymbol(currentToken.lexeme);
+		collectNextToken();
+
+		if (!counterSymbol) {
+			if (pass != 0) {
+				addError("Undeclared identifier");
+			}
+
+			return;
+		}
+	}
+	else {
+		addError("A valid L value is required for itteration");
+	}
+
+	if (currentToken.code == reserveTable.getReserveCode("from")) {
+		counterSymbol->temporaryRegisterBPOffset = counterSymbol->value;
+
+		collectNextToken();
+		SymbolInfo* startingSymbol = new SymbolInfo(symbolStack.scopeIndex);
+		parseExpression(startingSymbol);
+
+		if (currentToken.code == reserveTable.getReserveCode("to")) {
+			collectNextToken();
+			SymbolInfo* endingSymbol = new SymbolInfo(symbolStack.scopeIndex);
+			parseExpression(endingSymbol);
+
+			// Assign the counter to the starting value.
+			writeAssignmentInstructions(*counterSymbol, *startingSymbol, true);
+
+			int topOfLoopLabel = currentBinaryOffset;
+			int counterRegister = symbolStack.allocateIntRegister(*counterSymbol, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+			int endingRegister = symbolStack.allocateIntRegister(*endingSymbol, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+
+			writeInstruction(encodeInstruction(CMP, false, counterRegister, endingRegister), false);
+			symbolStack.freeIntRegister(*endingSymbol, false);
+			symbolStack.freeIntRegister(*counterSymbol, false);
+			int falseJmpLocation = currentBinaryOffset + 4ULL;
+			writeInstruction(encodeInstruction(JG, true), true, 0);
+			setupBlockStackframe(currentFunction, scopeLevel, scopeReturnAddress, subStackIndex);
+			subStackIndex++;
+
+			// Add to the counter.
+			counterRegister = symbolStack.allocateIntRegister(*counterSymbol, RegisterAllocMode::LOAD_ADDRESS_OR_VALUE);
+			writeInstruction(encodeInstruction(ADD, true, counterRegister, counterRegister), true, 1);
+			symbolStack.freeIntRegister(*counterSymbol, true);
+			// Jump back to the top.
+			writeInstruction(encodeInstruction(JMP, true), true, topOfLoopLabel - (currentBinaryOffset + 4ULL));
+
+			fillInMissingImmediate(falseJmpLocation, currentBinaryOffset - falseJmpLocation);
+		}
+		else {
+			addError("Expected 'to'");
+		}
+	}
+	else {
+		addError("Expected 'from'");
+	}
+
+	// I am going to try to hold onto the counter register the whole time if I can, but I understand if it may
+	// have to be stored on stacc at one point.
+	// int counterRegister = symbolStack.
+}
+
 // An if statement parses an expression and compares the result to zero. If its zero, the condition returns false,
 // and it jumps around the if execution block, otherwise it's true and it continues execution only to
 // jump around the code that would have jumped out afterwards. Simple stuff
@@ -441,7 +528,7 @@ void Compiler::parseIfStatement(SymbolInfo*& currentFunctions, int scopelevel, i
 	int falseJumpLblOffset = currentBinaryOffset + 4;
 	writeInstruction(encodeInstruction(JE, true), true, 0);
 
-	setupBlockStackframe(currentFunctions, scopelevel, scopelevel, subStackIndex);
+	setupBlockStackframe(currentFunctions, scopelevel, scopeReturnAddress, subStackIndex);
 	subStackIndex++;
 
 	// Should jump around the stack frame if false, so update the label here.
@@ -545,7 +632,7 @@ void Compiler::parseFunctionDefinition(int modifiers, SymbolInfo*& functionSymbo
 		// return back to this scope.
 
 		symbolStack.enterPreviousScope();
-		parseVariableDeclaration(modifiers, functionSymbol);
+		parseVariableDeclaration(modifiers, functionSymbol, false);
 		symbolStack.enterCurrentScope();
 		success = true;
 	}
@@ -572,7 +659,7 @@ void Compiler::parseFunctionDefinition(int modifiers, SymbolInfo*& functionSymbo
 				functionSymbol->fnArgs.push_back(nextArgument);
 
 				parseVariableDeclaration(argModifiers, 
-					functionSymbol->fnArgs[functionSymbol->fnArgs.size() - 1]);
+					functionSymbol->fnArgs[functionSymbol->fnArgs.size() - 1], false);
 				nextArgument->value = -(ARG_STACK_BP_OFFSET_START + (4 * argIndex));
 				argIndex++;
 			}
@@ -718,7 +805,7 @@ void Compiler::parseConst(SymbolInfo*& symbolInfo, bool allowRefs) {
 // A variable declaration consists of a name, followed by a colon
 // then a type value and an optional equals
 // Function is responsible for getting the variable name and typecode
-void Compiler::parseVariableDeclaration(int modifiers, SymbolInfo*& symbolInfo) {
+void Compiler::parseVariableDeclaration(int modifiers, SymbolInfo*& symbolInfo, bool allowInit) {
 	if (currentToken.code == IDENTIFIER_CODE) {
 		symbolInfo->name = currentToken.lexeme;
 		symbolInfo->fileName = currentToken.lexeme;
@@ -763,8 +850,8 @@ void Compiler::parseVariableDeclaration(int modifiers, SymbolInfo*& symbolInfo) 
 			symbolStack.pushVariable(*symbolInfo);
 
 			// Handle initialization, if its a variable (data or local)
-			if ((symbolInfo->accessType == QueSymbolAccessType::LOCAL ||
-				symbolInfo->accessType == QueSymbolAccessType::EXPORTED))
+			if (((symbolInfo->accessType == QueSymbolAccessType::LOCAL ||
+				symbolInfo->accessType == QueSymbolAccessType::EXPORTED) && allowInit))
 			{
 				// Handle data varaible
 				if (symbolInfo->symbolType == QueSymbolType::DATA) {
@@ -799,7 +886,7 @@ void Compiler::parseVariableDeclaration(int modifiers, SymbolInfo*& symbolInfo) 
 					}
 				} // Array
 			}
-			else if (symbolInfo->accessType == QueSymbolAccessType::VARIABLE) {
+			else if (symbolInfo->accessType == QueSymbolAccessType::VARIABLE && allowInit) {
 				if (currentToken.code == EQUALS_CODE) {
 					collectNextToken();
 					// Handle local variable

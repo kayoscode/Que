@@ -1,7 +1,5 @@
 #include "Compiler.h"
 
-#define TEMPORARY_VARIABLE_NOT_ON_STACK_VALUE -1
-
 void Compiler::parseExpression(SymbolInfo*& left) {
 	Operator op;
 	bool hasPrefixOp = false;
@@ -212,7 +210,7 @@ bool Compiler::getValueFromToken(SymbolInfo*& info) {
 		collectNextToken();
 	}
 	else if (currentToken.code == INTEGER_CODE || currentToken.code == HEX_INTEGER_CODE ||
-		currentToken.code == OCTAL_INTER_CODE || currentToken.code == BINARY_INTEGER_CODE)
+		currentToken.code == OCTAL_INTER_CODE || currentToken.code == BINARY_INTEGER_CODE) 
 	{
 		// Create temporary register to store constant value.
 		info->isTemporaryValue = true;
@@ -220,6 +218,15 @@ bool Compiler::getValueFromToken(SymbolInfo*& info) {
 		int loadedValue = tokenTo32BitInt();
 		info->value = loadedValue;
 
+		collectNextToken();
+	}
+	else if (currentToken.code == CHAR_INT_CODE) {
+		info->typeInfo.baseSize = types.getTypeSize(TypeCode::TYPE_INT8_CODE);
+		info->typeInfo.ptrCount = 0;
+		info->typeInfo.typeCode = TypeCode::TYPE_INT8_CODE;
+		char loadedValue = tokenTo32BitInt();
+
+		info->value = loadedValue;
 		collectNextToken();
 	}
 	else if (currentToken.code == reserveTable.getReserveCode("true")) {

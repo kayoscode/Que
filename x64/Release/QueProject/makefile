@@ -1,4 +1,3 @@
-   
 IDIR =include
 CC=../QueC.exe
 ASM=../QueASM.exe

@@ -155,7 +155,7 @@ void Compiler::parseArrayIndexer(SymbolInfo*& symbol) {
 	symbol->symbolType = QueSymbolType::DATA;
 }
 
-void Compiler::writeAssignmentInstructions(SymbolInfo& left, SymbolInfo& right) {
+void Compiler::writeAssignmentInstructions(SymbolInfo& left, SymbolInfo& right, bool freeLeft) {
 	// Assign a register to the right symbol, then assign one to the right symbol
 	// If we are an array or function, storing the address is fine, otherwise, the register should
 	// hold the value.
@@ -185,7 +185,10 @@ void Compiler::writeAssignmentInstructions(SymbolInfo& left, SymbolInfo& right) 
 
 		// Free register usage
 		symbolStack.freeIntRegister(right, false);
-		symbolStack.freeIntRegister(left, false);
+
+		if (freeLeft) {
+			symbolStack.freeIntRegister(left, false);
+		}
 	}
 }
 

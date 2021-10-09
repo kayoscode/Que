@@ -504,6 +504,23 @@ protected:
 	/// <returns></returns>
 	virtual bool readOneTwoChar() = 0;
 
+	virtual char readEscapedChar(char next) {
+		if (next == '\\') {
+			return '\\';
+		}
+		else if (next == 't') {
+			return '\t';
+		}
+		else if (next == 'b') {
+			return '\b';
+		}
+		else if (next == 'n') {
+			return '\n';
+		}
+
+		return 0;
+	}
+
 	/// <summary>
 	/// Reads a string token from the stream.
 	/// </summary>
@@ -514,18 +531,7 @@ protected:
 		while (!isEndOfStream() && buffer[bufferIndex] != '"' && buffer[bufferIndex] != '\r' && buffer[bufferIndex] != '\n') {
 			if (buffer[bufferIndex] == '\\') {
 				bufferIndex++;
-				if (buffer[bufferIndex] == 't') {
-					currentToken.lexeme += '\t';
-				}
-				else if (buffer[bufferIndex] == 'b') {
-					currentToken.lexeme += '\b';
-				}
-				else if (buffer[bufferIndex] == 'n') {
-					currentToken.lexeme += '\n';
-				}
-				else if (buffer[bufferIndex] == '\\') {
-					currentToken.lexeme += '\\';
-				}
+				currentToken.lexeme += readEscapedChar(buffer[bufferIndex]);
 			}
 			else {
 				currentToken.lexeme += buffer[bufferIndex];

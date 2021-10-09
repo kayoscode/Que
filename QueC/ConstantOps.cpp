@@ -384,6 +384,15 @@ bool Compiler::getConstantValueFromToken(ConstantValue& value, SymbolInfo& targe
 		((int*)&value.value)[0] = loadedValue;
 		collectNextToken();
 	}
+	else if (currentToken.code == CHAR_INT_CODE) {
+		value.type.baseSize = types.getTypeSize(TypeCode::TYPE_INT8_CODE);
+		value.type.ptrCount = 0;
+		value.type.typeCode = TypeCode::TYPE_INT8_CODE;
+
+		char loadedValue = tokenTo32BitInt();
+		((char*)&value.value)[0] = loadedValue;
+		collectNextToken();
+	}
 	else if (currentToken.code == reserveTable.getReserveCode("true")) {
 		value.type.baseSize = 1;
 		value.type.ptrCount = 0;
